@@ -1,0 +1,617 @@
+"use client";
+
+import * as React from "react";
+import {
+  Mail,
+  Send,
+  FileText,
+  Paperclip,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  Sparkles,
+  Shield,
+  Trash2,
+  RefreshCw,
+  ExternalLink,
+  Info,
+} from "lucide-react";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { Lead, EmailLog } from "@/lib/types";
+import { toast } from "sonner";
+
+interface OutreachSectionProps {
+  leads: Lead[];
+  onSendCampaign: (recipients: Lead[], logEntries: EmailLog[]) => void;
+}
+
+export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps) {
+  // Gmail integration stats
+  const dailySentToday = 18;
+  const dailyMaxLimit = 50;
+
+  // Composer state
+  const [subject, setSubject] = React.useState(
+    "Artisanal Singing Bowls & Handcrafted Sound Sets for {{company_name}} [Direct Exporter]"
+  );
+
+  const [body, setBody] = React.useState(
+    `Dear {{contact_name}},\n\nI came across {{company_name}} while reviewing top-tier home decor and wellness showrooms in {{state}}, {{country}}.\n\nWe are direct manufacturers and exporters of authentic hand-hammered 7-metal Tibetan Singing Bowls, meditation bells, and bronze acoustic decor based in Moradabad & Jaipur, India.\n\nKey highlights for US wholesalers:\n• 100% hand-tuned frequencies (Chakra sets from 4" to 14")\n• Direct FOB / CIF pricing (saving 35-45% compared to US domestic distributors)\n• Custom laser engraving and retail gift packaging available\n• Low MOQ for trial orders with door-to-door DHL/Air Cargo delivery\n\nI have attached our 2026 Wholesale Product Presentation & Pricing Catalog (PDF) for your review.\n\nCould we arrange a brief 5-minute call or reply with your preferred bowl sizes for complimentary sample dispatch?\n\nWarm regards,\n\nAvinash Singh\nHead of International Trade\nAura Crafts Exports, India\nWhatsApp / Direct: +91 98110 23456\nWeb: https://auracraftsexports.com`
+  );
+
+  // Attachment state
+  const [attachment, setAttachment] = React.useState<{
+    name: string;
+    size: string;
+  } | null>({
+    name: "Singing-Bowls-Wholesale-Catalog-2026.pdf",
+    size: "2.4 MB",
+  });
+
+  // Safeguards state
+  const [safeguards, setSafeguards] = React.useState({
+    dailyCap: 40,
+    delayMin: 60,
+    delayMax: 120,
+    warmUpMode: true,
+    skipAlreadyContacted: true,
+    autoStopBounce: true,
+    unsubscribeFooter: true,
+  });
+
+  // Recipients filter calculation
+  const eligibleRecipients = React.useMemo(() => {
+    return leads.filter((l) => {
+      if (l.emailValid !== true) return false;
+      if (l.aiClass !== "b2b") return false;
+      if (safeguards.skipAlreadyContacted && l.emailStatus !== "not_sent")
+        return false;
+      return true;
+    });
+  }, [leads, safeguards.skipAlreadyContacted]);
+
+  // Sample recipient for live preview
+  const sampleLead = eligibleRecipients[0] || leads[0];
+
+  const previewSubject = React.useMemo(() => {
+    if (!sampleLead) return subject;
+    return subject
+      .replace(/{{company_name}}/g, sampleLead.company)
+      .replace(/{{contact_name}}/g, sampleLead.contactName)
+      .replace(/{{product}}/g, "Singing Bowls")
+      .replace(/{{country}}/g, sampleLead.country)
+      .replace(/{{state}}/g, sampleLead.state);
+  }, [subject, sampleLead]);
+
+  const previewBody = React.useMemo(() => {
+    if (!sampleLead) return body;
+    return body
+      .replace(/{{company_name}}/g, sampleLead.company)
+      .replace(/{{contact_name}}/g, sampleLead.contactName)
+      .replace(/{{product}}/g, "Singing Bowls")
+      .replace(/{{country}}/g, sampleLead.country)
+      .replace(/{{state}}/g, sampleLead.state);
+  }, [body, sampleLead]);
+
+  // Dynamic Spam Risk Meter calculation
+  const spamRiskScore = React.useMemo(() => {
+    let score = 10;
+    if (safeguards.dailyCap > 45) score += 30;
+    if (safeguards.delayMin < 45) score += 35;
+    if (!safeguards.warmUpMode) score += 20;
+    if (!safeguards.autoStopBounce) score += 20;
+    if (!safeguards.unsubscribeFooter) score += 25;
+    return Math.min(score, 100);
+  }, [safeguards]);
+
+  const spamRiskLabel =
+    spamRiskScore < 30 ? "Low" : spamRiskScore < 60 ? "Medium" : "High";
+  const spamRiskColor =
+    spamRiskScore < 30
+      ? "text-accent"
+      : spamRiskScore < 60
+      ? "text-warning"
+      : "text-destructive";
+
+  // Dialog & Sending Simulation state
+  const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false);
+  const [isSending, setIsSending] = React.useState(false);
+  const [sentCount, setSentCount] = React.useState(0);
+  const [queuedCount, setQueuedCount] = React.useState(0);
+
+  const insertToken = (token: string) => {
+    setBody((prev) => `${prev} ${token}`);
+  };
+
+  const handleStartCampaign = () => {
+    setConfirmDialogOpen(false);
+    setIsSending(true);
+    setSentCount(0);
+    setQueuedCount(eligibleRecipients.length);
+
+    const targetList = eligibleRecipients.slice(0, safeguards.dailyCap);
+
+    let progressIndex = 0;
+    const interval = setInterval(() => {
+      progressIndex++;
+      setSentCount(progressIndex);
+
+      if (progressIndex >= targetList.length) {
+        clearInterval(interval);
+        setIsSending(false);
+
+        const newLogs: EmailLog[] = targetList.map((lead) => ({
+          id: `log-${Date.now()}-${lead.id}`,
+          leadId: lead.id,
+          company: lead.company,
+          contactName: lead.contactName,
+          email: lead.email,
+          subject: subject.replace(/{{company_name}}/g, lead.company),
+          status: "sent",
+          timestamp: "Just now",
+          sentAt: new Date().toISOString(),
+        }));
+
+        onSendCampaign(targetList, newLogs);
+
+        toast.success("Outreach Campaign Started via Gmail!", {
+          description: `Dispatched ${targetList.length} personalized emails with catalog attachment.`,
+        });
+      }
+    }, 150);
+  };
+
+  const handleSendTestEmail = () => {
+    toast.success("Test Email Dispatched to Connected Exporter Account!", {
+      description: `Sent sample email with merge tags to exportleads.demo@gmail.com. Check inbox.`,
+    });
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in-slide">
+      {/* Gmail Connection & Throttle Card */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="p-4 md:col-span-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0">
+              <Mail className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-foreground">
+                  Connected Sender: exportleads.demo@gmail.com
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-accent/20 text-accent font-semibold">
+                  OAuth Active
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Google Workspace SMTP relay with DKIM, SPF & DMARC 100% passed
+              </p>
+            </div>
+          </div>
+
+          <div className="sm:text-right space-y-1">
+            <div className="text-xs text-muted-foreground">
+              Daily Limit:{" "}
+              <strong className="text-foreground font-mono">
+                {dailySentToday + sentCount} / {dailyMaxLimit}
+              </strong>
+            </div>
+            <div className="w-40 sm:w-48 h-2 rounded-full bg-secondary overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-all duration-300"
+                style={{
+                  width: `${((dailySentToday + sentCount) / dailyMaxLimit) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* Recipients Target Summary */}
+        <Card className="p-4 flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="text-xs uppercase font-semibold text-muted-foreground">
+              Target Audience
+            </span>
+            <div className="text-xl font-bold font-mono text-accent">
+              {eligibleRecipients.length} Buyers
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Valid email + Verified B2B + Uncontacted
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-accent/10 text-accent flex items-center justify-center">
+            <Send className="w-4 h-4" />
+          </div>
+        </Card>
+      </div>
+
+      {/* Main Composer & Live Merge Preview */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Email Composer */}
+        <Card className="space-y-4">
+          <CardHeader className="p-0">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">Personalized Email Composer</CardTitle>
+              <span className="text-xs text-muted-foreground">Dynamic Merge Engine</span>
+            </div>
+            <CardDescription>
+              Write outreach copy. Tokens will be automatically substituted per buyer.
+            </CardDescription>
+          </CardHeader>
+
+          {/* Merge Tokens Chips */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-semibold text-muted-foreground block">
+              Click to insert personalization token:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                "{{company_name}}",
+                "{{contact_name}}",
+                "{{product}}",
+                "{{country}}",
+                "{{state}}",
+              ].map((token) => (
+                <button
+                  key={token}
+                  type="button"
+                  onClick={() => insertToken(token)}
+                  className="px-2.5 py-1 rounded bg-secondary hover:bg-accent/15 hover:text-accent font-mono text-[11px] text-muted-foreground border border-border transition-colors cursor-pointer"
+                >
+                  + {token}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Subject Line */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">
+              Subject Line
+            </label>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="e.g. Artisanal Singing Bowls for {{company_name}}"
+              className="text-xs"
+            />
+          </div>
+
+          {/* Email Body */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">
+              Email Body Template (Markdown / Plain Text)
+            </label>
+            <Textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={11}
+              className="font-sans text-xs leading-relaxed"
+            />
+          </div>
+
+          {/* PDF Attachment Dropzone */}
+          <div className="space-y-2 pt-1 border-t border-border">
+            <label className="text-xs font-semibold text-muted-foreground flex items-center justify-between">
+              <span>Attached Product Presentation / Catalog</span>
+              <span className="text-[11px] text-accent">PDF Deliverable</span>
+            </label>
+
+            {attachment ? (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/60 border border-accent/30">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs">
+                    <p className="font-medium text-foreground">{attachment.name}</p>
+                    <p className="font-mono text-muted-foreground">{attachment.size}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setAttachment(null)}
+                    className="h-7 px-2 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() =>
+                  setAttachment({
+                    name: "Singing-Bowls-Wholesale-Catalog-2026.pdf",
+                    size: "2.4 MB",
+                  })
+                }
+                className="border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-accent hover:bg-accent/5 transition-colors"
+              >
+                <Paperclip className="w-5 h-5 text-muted-foreground mx-auto mb-1" />
+                <p className="text-xs font-medium text-foreground">
+                  Click to re-attach product catalog PDF
+                </p>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Live Preview Column */}
+        <div className="space-y-4">
+          <Card className="h-full flex flex-col justify-between">
+            <CardHeader className="p-0 pb-3 border-b border-border">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm">Live Recipient Preview</CardTitle>
+                <span className="text-[11px] font-mono text-accent">
+                  Simulating: {sampleLead?.company || "Sample Buyer"}
+                </span>
+              </div>
+              <CardDescription>
+                How this email will appear in the buyer&apos;s Gmail / Outlook inbox
+              </CardDescription>
+            </CardHeader>
+
+            <div className="flex-1 py-3 space-y-3 text-xs overflow-y-auto max-h-[460px]">
+              {/* Fake Email Envelope Header */}
+              <div className="p-3 rounded-lg bg-secondary/40 border border-border space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">To:</span>
+                  <span className="font-mono text-foreground font-medium">
+                    {sampleLead?.contactName} &lt;{sampleLead?.email}&gt;
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">From:</span>
+                  <span className="text-foreground">
+                    Avinash Singh (Aura Crafts Exports) &lt;exportleads.demo@gmail.com&gt;
+                  </span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-border">
+                  <span className="text-muted-foreground">Subject:</span>
+                  <span className="font-semibold text-accent truncate max-w-sm">
+                    {previewSubject}
+                  </span>
+                </div>
+              </div>
+
+              {/* Email Content Preview */}
+              <div className="p-4 rounded-lg bg-card border border-border whitespace-pre-line text-foreground/90 font-sans leading-relaxed text-xs">
+                {previewBody}
+              </div>
+
+              {/* Attachment pill preview */}
+              {attachment && (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 border border-border text-[11px]">
+                  <FileText className="w-3.5 h-3.5 text-red-400" />
+                  <span className="font-medium text-foreground">{attachment.name}</span>
+                  <span className="font-mono text-muted-foreground">
+                    ({attachment.size})
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Test Email Action */}
+            <div className="pt-3 border-t border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Verify formatting before mass sending
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendTestEmail}
+                className="text-xs h-8"
+              >
+                Send Test Email to Me
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* Deliverability Safeguards & Spam Risk Card */}
+      <Card className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Shield className="w-4 h-4 text-accent" />
+              Deliverability Safeguards &amp; Anti-Spam Controls
+            </CardTitle>
+            <CardDescription>
+              Engineered to prevent domain burn, spam traps, and Gmail sending blocks
+            </CardDescription>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">Calculated Spam Risk:</span>
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-secondary border border-border">
+              <span className={`text-xs font-bold font-mono ${spamRiskColor}`}>
+                {spamRiskLabel} ({spamRiskScore}/100)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+          {/* Daily Cap */}
+          <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="font-medium text-foreground">Daily Send Cap</span>
+              <span className="font-mono font-bold text-accent">
+                {safeguards.dailyCap} emails/day
+              </span>
+            </div>
+            <Input
+              type="number"
+              value={safeguards.dailyCap}
+              onChange={(e) =>
+                setSafeguards({
+                  ...safeguards,
+                  dailyCap: parseInt(e.target.value) || 20,
+                })
+              }
+              max={50}
+              min={5}
+              className="h-8 text-xs font-mono"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Maximum recommended for new exporter domains is 40.
+            </p>
+          </div>
+
+          {/* Random Delay */}
+          <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="font-medium text-foreground">Delay Between Emails</span>
+              <span className="font-mono font-bold text-accent">
+                {safeguards.delayMin}s - {safeguards.delayMax}s
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={safeguards.delayMin}
+                onChange={(e) =>
+                  setSafeguards({
+                    ...safeguards,
+                    delayMin: parseInt(e.target.value) || 30,
+                  })
+                }
+                className="h-8 text-xs font-mono"
+              />
+              <span className="text-muted-foreground">to</span>
+              <Input
+                type="number"
+                value={safeguards.delayMax}
+                onChange={(e) =>
+                  setSafeguards({
+                    ...safeguards,
+                    delayMax: parseInt(e.target.value) || 120,
+                  })
+                }
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Jittered random intervals emulate manual human typing.
+            </p>
+          </div>
+
+          {/* Warmup & Auto stop switches */}
+          <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-foreground">Gradual Warm-Up Mode</span>
+              <Switch
+                checked={safeguards.warmUpMode}
+                onCheckedChange={(c) =>
+                  setSafeguards({ ...safeguards, warmUpMode: c })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-foreground">Skip Already Contacted</span>
+              <Switch
+                checked={safeguards.skipAlreadyContacted}
+                onCheckedChange={(c) =>
+                  setSafeguards({ ...safeguards, skipAlreadyContacted: c })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-foreground">Auto-Stop if Bounce &gt; 5%</span>
+              <Switch
+                checked={safeguards.autoStopBounce}
+                onCheckedChange={(c) =>
+                  setSafeguards({ ...safeguards, autoStopBounce: c })
+                }
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Start Campaign Bar */}
+        <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <Info className="w-4 h-4 text-accent" />
+            <span>
+              Ready to send to{" "}
+              <strong className="text-foreground">
+                {Math.min(eligibleRecipients.length, safeguards.dailyCap)}
+              </strong>{" "}
+              qualified US buyers today.
+            </span>
+          </div>
+
+          <Button
+            variant="accent"
+            size="lg"
+            disabled={isSending || eligibleRecipients.length === 0}
+            onClick={() => setConfirmDialogOpen(true)}
+            className="w-full sm:w-auto min-w-[200px] gap-2 font-semibold"
+          >
+            {isSending ? (
+              <>
+                <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
+                <span>
+                  Sending ({sentCount}/{Math.min(eligibleRecipients.length, safeguards.dailyCap)})
+                </span>
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>Start Outreach Campaign</span>
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
+
+      {/* Confirmation Dialog before sending */}
+      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start Cold Outreach via Gmail?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to queue{" "}
+              <strong className="text-foreground">
+                {Math.min(eligibleRecipients.length, safeguards.dailyCap)} personalized emails
+              </strong>{" "}
+              with <strong>Singing-Bowls-Wholesale-Catalog-2026.pdf</strong> attached.
+              <br />
+              <br />
+              All deliverability throttles ({safeguards.delayMin}-{safeguards.delayMax}s delay, daily cap of {safeguards.dailyCap}) will be automatically applied.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Review Draft</AlertDialogCancel>
+            <AlertDialogAction onClick={handleStartCampaign}>
+              Yes, Dispatch Emails
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
