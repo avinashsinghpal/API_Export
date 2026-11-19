@@ -625,94 +625,175 @@ export function DiscoverySection() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* LinkedIn Search String */}
+            {/* LinkedIn Search String Generator */}
             <Card className="space-y-3">
               <CardHeader className="p-0">
                 <CardTitle className="text-sm">LinkedIn Recruiter &amp; Sales Search</CardTitle>
                 <CardDescription>
-                  Copy &amp; paste into LinkedIn search bar to find buyers
+                  Narrowed by Buyer titles, product keywords, and destination
                 </CardDescription>
               </CardHeader>
               <div className="p-3 rounded-lg bg-secondary font-mono text-xs text-accent break-all select-all">
-                (&quot;Buyer&quot; OR &quot;Purchaser&quot; OR &quot;Procurement Manager&quot;) AND (&quot;Home Decor&quot; OR &quot;Singing Bowls&quot;) AND &quot;United States&quot;
+                (&quot;Buyer&quot; OR &quot;Purchaser&quot; OR &quot;Procurement Manager&quot; OR &quot;Category Manager&quot;) AND (&quot;{product}&quot; OR &quot;{category}&quot;) AND (&quot;{cityFilter || stateFilter || country}&quot;)
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs gap-1.5"
-                onClick={() => {
-                  navigator.clipboard.writeText(
-                    '("Buyer" OR "Purchaser" OR "Procurement Manager") AND ("Home Decor" OR "Singing Bowls") AND "United States"'
-                  );
-                  toast.success("Query copied to clipboard!");
-                }}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Copy LinkedIn Search String</span>
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={() => {
+                    const str = `("Buyer" OR "Purchaser" OR "Procurement Manager" OR "Category Manager") AND ("${product}" OR "${category}") AND ("${cityFilter || stateFilter || country}")`;
+                    navigator.clipboard.writeText(str);
+                    toast.success("LinkedIn query copied!");
+                  }}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy String</span>
+                </Button>
+                <a
+                  href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
+                    `("Buyer" OR "Purchaser" OR "Procurement Manager") AND "${product}" "${cityFilter || stateFilter || country}"`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-xs font-semibold text-foreground transition-colors"
+                >
+                  <span>Open LinkedIn</span>
+                  <ExternalLink className="w-3 h-3 text-accent" />
+                </a>
+              </div>
             </Card>
 
-            {/* Google Dork Search */}
+            {/* Google / Maps Narrowed Query Generator */}
             <Card className="space-y-3">
               <CardHeader className="p-0">
-                <CardTitle className="text-sm">Google Maps High-Intent Dork</CardTitle>
+                <CardTitle className="text-sm">Google &amp; Maps Narrowed Query</CardTitle>
                 <CardDescription>
-                  Extract local wholesale showrooms with direct phone numbers
+                  Country &rarr; State &rarr; City targeted showroom query
                 </CardDescription>
               </CardHeader>
               <div className="p-3 rounded-lg bg-secondary font-mono text-xs text-accent break-all select-all">
-                &quot;singing bowls&quot; OR &quot;meditation bells&quot; wholesale OR showroom intext:&quot;Texas&quot; OR &quot;California&quot; -amazon -walmart
+                &quot;{product}&quot; wholesale OR showroom intext:&quot;{cityFilter || stateFilter}&quot; intext:&quot;{country}&quot; -amazon -walmart -ebay
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs gap-1.5"
-                onClick={() => {
-                  navigator.clipboard.writeText(
-                    '"singing bowls" OR "meditation bells" wholesale OR showroom intext:"Texas" OR "California" -amazon -walmart'
-                  );
-                  toast.success("Query copied to clipboard!");
-                }}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Copy Google Query</span>
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={() => {
+                    const str = `"${product}" wholesale OR showroom intext:"${cityFilter || stateFilter}" intext:"${country}" -amazon -walmart -ebay`;
+                    navigator.clipboard.writeText(str);
+                    toast.success("Google query copied!");
+                  }}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Query</span>
+                </Button>
+                <a
+                  href={`https://www.google.com/maps/search/${encodeURIComponent(
+                    `${product} wholesale showroom ${cityFilter} ${stateFilter} ${country}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-xs font-semibold text-foreground transition-colors"
+                >
+                  <span>Open Maps</span>
+                  <ExternalLink className="w-3 h-3 text-accent" />
+                </a>
+              </div>
             </Card>
 
-            {/* Trade Intelligence Links */}
+            {/* Trade Intelligence Directories (1-4) */}
             <Card className="space-y-3">
               <CardHeader className="p-0">
-                <CardTitle className="text-sm">US Customs &amp; Trade Intel</CardTitle>
+                <CardTitle className="text-sm">Customs &amp; Wholesale Directories</CardTitle>
                 <CardDescription>
-                  Find real US companies importing Indian handicrafts via bills of lading
+                  Direct commercial imports and industrial trade networks
                 </CardDescription>
               </CardHeader>
               <div className="space-y-2">
                 <a
-                  href="https://www.importyeti.com"
+                  href={`https://www.importyeti.com/search?q=${encodeURIComponent(product)}`}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between p-2 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
                 >
                   <span className="font-medium">ImportYeti (Bill of Lading Intel)</span>
                   <ExternalLink className="w-3.5 h-3.5 text-accent" />
                 </a>
                 <a
-                  href="https://www.thomasnet.com"
+                  href={`https://www.thomasnet.com/search.html?cov=NA&what=${encodeURIComponent(product)}`}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between p-2 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
                 >
-                  <span className="font-medium">ThomasNet Wholesale Directory</span>
+                  <span className="font-medium">ThomasNet Industrial Suppliers</span>
                   <ExternalLink className="w-3.5 h-3.5 text-accent" />
                 </a>
                 <a
-                  href="https://www.faire.com"
+                  href={`https://www.faire.com/search?q=${encodeURIComponent(product)}`}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between p-2 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
                 >
                   <span className="font-medium">Faire Wholesale Marketplace</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-accent" />
+                </a>
+                <a
+                  href={`https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(product)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
+                >
+                  <span className="font-medium">Alibaba Trade Leads</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-accent" />
+                </a>
+              </div>
+            </Card>
+
+            {/* Trade Intelligence Directories (5-8) */}
+            <Card className="space-y-3 md:col-span-2 lg:col-span-3">
+              <CardHeader className="p-0">
+                <CardTitle className="text-sm">Regional Commercial &amp; Mart Directories</CardTitle>
+                <CardDescription>
+                  City and state level trade registries for local buyer identification
+                </CardDescription>
+              </CardHeader>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                <a
+                  href={`https://dir.indiamart.com/search.mp?ss=${encodeURIComponent(product)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
+                >
+                  <span className="font-medium">IndiaMART Exporter Directory</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-accent" />
+                </a>
+                <a
+                  href={`https://www.yellowpages.com/search?search_terms=${encodeURIComponent(product + " wholesale")}&geo_location_terms=${encodeURIComponent((cityFilter ? cityFilter + ", " : "") + stateFilter)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
+                >
+                  <span className="font-medium">Yellow Pages US</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-accent" />
+                </a>
+                <a
+                  href={`https://www.yelp.com/search?find_desc=${encodeURIComponent(product + " showroom")}&find_loc=${encodeURIComponent((cityFilter ? cityFilter + ", " : "") + stateFilter)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
+                >
+                  <span className="font-medium">Yelp Commercial Showrooms</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-accent" />
+                </a>
+                <a
+                  href={`https://www.chamberofcommerce.com/search?what=${encodeURIComponent(product)}&where=${encodeURIComponent((cityFilter ? cityFilter + ", " : "") + stateFilter)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
+                >
+                  <span className="font-medium">Chamber of Commerce US</span>
                   <ExternalLink className="w-3.5 h-3.5 text-accent" />
                 </a>
               </div>

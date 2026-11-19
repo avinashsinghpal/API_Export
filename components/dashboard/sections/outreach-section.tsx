@@ -162,6 +162,26 @@ export function OutreachSection() {
 
   return (
     <div className="space-y-6 animate-fade-in-slide">
+      {/* Coming Soon Notice */}
+      <div className="flex items-center justify-between p-3.5 rounded-xl bg-card border border-chart-1/30 text-xs shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-chart-1/15 text-chart-1 flex items-center justify-center shrink-0">
+            <Mail className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="font-semibold text-foreground flex items-center gap-2">
+              <span>Gmail Outreach Engine &amp; Reply Tracking</span>
+              <span className="px-2 py-0.5 rounded-full bg-chart-1/20 text-chart-1 text-[10px] font-mono font-bold uppercase">
+                Coming Soon
+              </span>
+            </p>
+            <p className="text-muted-foreground">
+              This interactive preview demonstrates the RFC-2822 MIME composer, merge tokens, and real-time spam scoring. Live email dispatching is intentionally deferred — no emails are sent in this local discovery edition.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Gmail Connection & Throttle Card */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-4 md:col-span-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -481,23 +501,15 @@ export function OutreachSection() {
           </div>
 
           <Button
-            variant="accent"
+            variant="secondary"
             size="lg"
-            disabled={isSending || eligibleRecipients.length === 0}
-            onClick={() => setConfirmDialogOpen(true)}
-            className="w-full sm:w-auto min-w-[200px] gap-2 font-semibold"
+            onClick={() => {
+              toast.info("Outreach sending is reserved for a future release. No emails sent in this version.");
+            }}
+            className="w-full sm:w-auto min-w-[200px] gap-2 font-semibold border border-border"
           >
-            {isSending ? (
-              <>
-                <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
-                <span>Dispatching Emails...</span>
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                <span>Start Outreach Campaign</span>
-              </>
-            )}
+            <Send className="w-4 h-4 text-muted-foreground" />
+            <span>Outreach Sending (Coming Soon)</span>
           </Button>
         </div>
       </Card>

@@ -9,21 +9,19 @@ interface PipelineFunnelProps {
   duplicatesBlocked?: number;
 }
 
-export function PipelineFunnel({ leads, duplicatesBlocked = 11 }: PipelineFunnelProps) {
+export function PipelineFunnel({ leads, duplicatesBlocked = 14 }: PipelineFunnelProps) {
   const discovered = leads.length + duplicatesBlocked;
   const deduplicated = leads.length;
+  const enriched = leads.filter((l) => (l as any).sourceRef || l.phone).length;
   const emailValid = leads.filter((l) => l.emailValid === true).length;
   const aiB2B = leads.filter((l) => l.aiClass === "b2b").length;
-  const contacted = leads.filter((l) => l.emailStatus !== "not_sent").length;
-  const replied = leads.filter((l) => l.emailStatus === "replied").length;
 
   const steps = [
-    { label: "Discovered", count: discovered, color: "bg-chart-1" },
-    { label: "Deduplicated", count: deduplicated, color: "bg-chart-5" },
-    { label: "Email Valid", count: emailValid, color: "bg-chart-3" },
-    { label: "AI-Verified B2B", count: aiB2B, color: "bg-accent" },
-    { label: "Contacted", count: contacted, color: "bg-chart-1" },
-    { label: "Replied", count: replied, color: "bg-accent" },
+    { label: "1. Discovered", count: discovered, color: "bg-chart-1" },
+    { label: "2. Deduplicated", count: deduplicated, color: "bg-chart-5" },
+    { label: "3. Enriched", count: enriched, color: "bg-chart-2" },
+    { label: "4. Email Valid", count: emailValid, color: "bg-chart-3" },
+    { label: "5. AI-Verified B2B", count: aiB2B, color: "bg-accent" },
   ];
 
   const max = Math.max(discovered, 1);
