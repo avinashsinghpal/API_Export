@@ -4,10 +4,8 @@ import * as React from "react";
 import {
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Play,
   RotateCcw,
-  ShieldCheck,
   MailCheck,
   ServerOff,
   AtSign,
@@ -19,53 +17,51 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Lead } from "@/lib/types";
+import { useLeadsQuery, useValidateEmailsMutation, useUpdateLeadMutation } from "@/lib/hooks/use-export-leads";
 import { toast } from "sonner";
 
-interface ValidationSectionProps {
-  leads: Lead[];
-  onUpdateLead: (lead: Lead) => void;
-  onRestoreLead?: (lead: Lead) => void;
-}
+export function ValidationSection() {
+  const { data, isLoading } = useLeadsQuery({ limit: 200 });
+  const validateEmailsMutation = useValidateEmailsMutation();
+  const updateLeadMutation = useUpdateLeadMutation();
 
-export function ValidationSection({
-  leads,
-  onUpdateLead,
-  onRestoreLead,
-}: ValidationSectionProps) {
   const [isValidating, setIsValidating] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
 
+  const leads = data?.leads || [];
   const totalChecked = leads.filter((l) => l.emailValid !== null).length;
   const validCount = leads.filter((l) => l.emailValid === true).length;
   const invalidLeads = leads.filter((l) => l.emailValid === false);
 
-  const handleRunValidation = () => {
+  const handleRunValidation = async () => {
     setIsValidating(true);
-    setProgress(15);
+    setProgress(20);
 
-    const steps = [
-      { delay: 400, pct: 40 },
-      { delay: 800, pct: 75 },
-      { delay: 1300, pct: 100 },
-    ];
+    const timer = setInterval(() => {
+      setProgress((prev) => (prev < 90 ? prev + 25 : prev));
+    }, 300);
 
-    steps.forEach(({ delay, pct }) => {
-      setTimeout(() => setProgress(pct), delay);
-    });
-
-    setTimeout(() => {
+    try {
+      const res = await validateEmailsMutation.mutateAsync();
+      clearInterval(timer);
+      setProgress(100);
       setIsValidating(false);
-      // Ensure all valid ones remain valid
-      toast.success("Email Hygiene Run Complete!", {
-        description: `Verified ${totalChecked} addresses. Flagged ${invalidLeads.length} invalid or high-risk inboxes.`,
+      toast.success("Email Hygiene Complete!", {
+        description: res.message,
       });
-    }, 1600);
+    } catch (err: any) {
+      clearInterval(timer);
+      setIsValidating(false);
+      toast.error(err.message || "Failed to validate emails");
+    }
   };
 
-  const handleRestore = (lead: Lead) => {
-    const restored = { ...lead, emailValid: true, emailValidationReason: undefined };
-    onUpdateLead(restored);
+  const handleRestore = (lead: any) => {
+    updateLeadMutation.mutate({
+      id: lead.id,
+      emailValid: true,
+      emailValidationReason: undefined,
+    });
     toast.success(`Restored ${lead.company} to active outreach list.`);
   };
 
@@ -77,7 +73,7 @@ export function ValidationSection({
           index={0}
           title="Total Inboxes Checked"
           value={totalChecked}
-          subtitle="Syntax & DNS Lookup"
+          subtitle="RFC-822 Syntax & DNS Lookup"
           icon={MailCheck}
           trend="neutral"
         />
@@ -85,8 +81,8 @@ export function ValidationSection({
           index={1}
           title="Verified Valid Mailboxes"
           value={validCount}
-          change={`${Math.round((validCount / Math.max(totalChecked, 1)) * 100)}% Deliverable`}
-          subtitle="Passed MX and SMTP ping"
+          change={`${totalChecked > 0 ? Math.round((validCount / totalChecked) * 100) : 0}% Deliverable`}
+          subtitle="Passed MX and SMTP check"
           icon={CheckCircle2}
           trend="up"
         />
@@ -103,13 +99,12 @@ export function ValidationSection({
 
       {/* Main Validation Dashboard */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Donut Chart breakdown (2/3) */}
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
               <CardTitle>Deliverability Breakdown</CardTitle>
               <CardDescription>
-                Categorization of healthy vs risky email contacts
+                Categorization of healthy vs risky email contacts in your database
               </CardDescription>
             </div>
             <Button
@@ -117,17 +112,17 @@ export function ValidationSection({
               size="sm"
               onClick={handleRunValidation}
               disabled={isValidating}
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs font-semibold"
             >
               <Play className="w-3.5 h-3.5" />
-              <span>{isValidating ? "Verifying DNS..." : "Run Hygiene Scan"}</span>
+              <span>{isValidating ? "Pinging DNS..." : "Run Hygiene Scan"}</span>
             </Button>
           </CardHeader>
 
           {isValidating && (
             <div className="px-6 py-2 space-y-1.5">
               <div className="flex justify-between text-xs font-mono text-accent">
-                <span>Pinging Mail Exchange Servers...</span>
+                <span>Pinging Mail Exchange Servers & resolving MX records...</span>
                 <span>{progress}%</span>
               </div>
               <Progress value={progress} />
@@ -135,15 +130,15 @@ export function ValidationSection({
           )}
 
           <CardContent className="pt-4">
-            <ValidationDonutChart leads={leads} />
+            <ValidationDonutChart leads={leads as any} />
           </CardContent>
         </Card>
 
-        {/* Deliverability Rules Card (1/3) */}
+        {/* Deliverability Rules Card */}
         <Card className="space-y-4">
           <CardHeader>
             <CardTitle className="text-sm">Hygiene Rule Engine</CardTitle>
-            <CardDescription>Rules applied to protect Gmail sender reputation</CardDescription>
+            <CardDescription>Automated rules protecting Gmail sender reputation</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 pt-0 text-xs">
             <div className="flex items-start gap-2.5 p-2 rounded-lg bg-secondary/40 border border-border">
@@ -157,8 +152,8 @@ export function ValidationSection({
             <div className="flex items-start gap-2.5 p-2 rounded-lg bg-secondary/40 border border-border">
               <ServerOff className="w-4 h-4 text-chart-4 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-foreground">Active MX Record Check</p>
-                <p className="text-muted-foreground">Validates destination mail server DNS resolution.</p>
+                <p className="font-semibold text-foreground">Live MX Record Resolution</p>
+                <p className="text-muted-foreground">Validates destination mail server DNS routing.</p>
               </div>
             </div>
 
@@ -166,7 +161,7 @@ export function ValidationSection({
               <ShieldAlert className="w-4 h-4 text-chart-3 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold text-foreground">Disposable Domain Blocklist</p>
-                <p className="text-muted-foreground">Filters temp-mail, 10minutemail, bot services.</p>
+                <p className="text-muted-foreground">Filters temp-mail, 10minutemail, bot accounts.</p>
               </div>
             </div>
 
@@ -181,18 +176,16 @@ export function ValidationSection({
         </Card>
       </div>
 
-      {/* Purged / Flagged Invalid Inboxes Table */}
+      {/* Quarantined Invalid Inboxes Table */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Purged & Quarantined Contacts</CardTitle>
+            <CardTitle>Purged &amp; Quarantined Contacts</CardTitle>
             <CardDescription>
-              Contacts excluded from cold email outreach to maintain &gt;95% deliverability
+              Contacts excluded from cold email outreach to keep bounce rate &lt; 3%
             </CardDescription>
           </div>
-          <Badge variant="destructive">
-            {invalidLeads.length} Blocked
-          </Badge>
+          <Badge variant="destructive">{invalidLeads.length} Blocked</Badge>
         </CardHeader>
 
         <CardContent className="p-0">
@@ -200,21 +193,11 @@ export function ValidationSection({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-secondary/50 border-b border-border">
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Company
-                  </th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Flagged Email
-                  </th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Detection Reason
-                  </th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Risk Category
-                  </th>
-                  <th className="py-3 px-4 text-right font-semibold uppercase tracking-wider text-muted-foreground">
-                    Action
-                  </th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Company</th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Flagged Email</th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Detection Reason</th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Risk Category</th>
+                  <th className="py-3 px-4 text-right font-semibold uppercase tracking-wider text-muted-foreground">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -222,25 +205,13 @@ export function ValidationSection({
                   const reason = lead.emailValidationReason || "syntax_invalid";
                   return (
                     <tr key={lead.id} className="hover:bg-secondary/30 transition-colors">
-                      <td className="py-3 px-4 font-medium text-foreground">
-                        {lead.company}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-destructive">
-                        {lead.email}
-                      </td>
+                      <td className="py-3 px-4 font-medium text-foreground">{lead.company}</td>
+                      <td className="py-3 px-4 font-mono text-destructive">{lead.email}</td>
                       <td className="py-3 px-4">
-                        {reason === "no_mx_record" && (
-                          <span className="text-chart-4 font-medium">No MX record on domain</span>
-                        )}
-                        {reason === "disposable_domain" && (
-                          <span className="text-chart-3 font-medium">Disposable temp-email provider</span>
-                        )}
-                        {reason === "syntax_invalid" && (
-                          <span className="text-destructive font-medium">RFC Syntax malformed</span>
-                        )}
-                        {reason === "role_based" && (
-                          <span className="text-chart-5 font-medium">Generic role inbox (postmaster/admin)</span>
-                        )}
+                        {reason === "no_mx_record" && <span className="text-chart-4 font-medium">No MX record on domain</span>}
+                        {reason === "disposable_domain" && <span className="text-chart-3 font-medium">Disposable temp-email provider</span>}
+                        {reason === "syntax_invalid" && <span className="text-destructive font-medium">RFC Syntax malformed</span>}
+                        {reason.includes("role") && <span className="text-chart-5 font-medium">Generic role inbox (postmaster/admin)</span>}
                       </td>
                       <td className="py-3 px-4">
                         <Badge variant="destructive">High Bounce Risk</Badge>

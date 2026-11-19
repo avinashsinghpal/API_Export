@@ -1,4 +1,20 @@
-export type SourceType = "google" | "facebook" | "linkedin" | "directory" | "website";
+export type SourceType =
+  | "google"
+  | "facebook"
+  | "linkedin"
+  | "directory"
+  | "website"
+  | "manual"
+  | "GOOGLE"
+  | "GOOGLE_PLACES"
+  | "DIRECTORY"
+  | "WEBSITE"
+  | "LINKEDIN"
+  | "APOLLO"
+  | "HUNTER"
+  | "IMPORT_CSV"
+  | "MANUAL"
+  | string;
 
 export type BuyerType =
   | "Importer"

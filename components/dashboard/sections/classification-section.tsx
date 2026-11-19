@@ -3,13 +3,8 @@
 import * as React from "react";
 import {
   Sparkles,
-  Bot,
-  Sliders,
-  CheckCircle2,
-  AlertCircle,
   ExternalLink,
   Zap,
-  Filter,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,67 +19,51 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ClassificationChart } from "@/components/dashboard/charts/classification-chart";
-import { Lead } from "@/lib/types";
+import { useLeadsQuery, useClassifyLeadsMutation, useUpdateLeadMutation } from "@/lib/hooks/use-export-leads";
 import { toast } from "sonner";
 
-interface ClassificationSectionProps {
-  leads: Lead[];
-  onUpdateLead: (lead: Lead) => void;
-}
+export function ClassificationSection() {
+  const { data, isLoading } = useLeadsQuery({ limit: 100 });
+  const classifyMutation = useClassifyLeadsMutation();
+  const updateLeadMutation = useUpdateLeadMutation();
 
-export function ClassificationSection({
-  leads,
-  onUpdateLead,
-}: ClassificationSectionProps) {
   const [confidenceThreshold, setConfidenceThreshold] = React.useState(0.75);
   const [isClassifying, setIsClassifying] = React.useState(false);
   const [classifyProgress, setClassifyProgress] = React.useState(0);
 
+  const leads = data?.leads || [];
   const unclassified = leads.filter((l) => l.aiClass === null);
   const b2bCount = leads.filter((l) => l.aiClass === "b2b").length;
   const consumerCount = leads.filter((l) => l.aiClass === "consumer").length;
 
-  const handleClassifyAll = () => {
+  const handleClassifyAll = async () => {
     setIsClassifying(true);
-    setClassifyProgress(10);
+    setClassifyProgress(20);
 
-    const steps = [
-      { delay: 400, pct: 45 },
-      { delay: 900, pct: 80 },
-      { delay: 1400, pct: 100 },
-    ];
+    const timer = setInterval(() => {
+      setClassifyProgress((prev) => (prev < 90 ? prev + 20 : prev));
+    }, 300);
 
-    steps.forEach(({ delay, pct }) => {
-      setTimeout(() => setClassifyProgress(pct), delay);
-    });
-
-    setTimeout(() => {
+    try {
+      const res = await classifyMutation.mutateAsync({
+        threshold: confidenceThreshold,
+      });
+      clearInterval(timer);
+      setClassifyProgress(100);
       setIsClassifying(false);
-
-      // Auto-classify any unclassified leads
-      leads.forEach((l) => {
-        if (l.aiClass === null) {
-          const isRetailLike = l.company.toLowerCase().includes("blog") || l.company.toLowerCase().includes("personal");
-          onUpdateLead({
-            ...l,
-            aiClass: isRetailLike ? "consumer" : "b2b",
-            aiConfidence: 0.93,
-            aiReasoning: isRetailLike
-              ? "Flagged by Gemini as solo consumer / hobbyist based on web metadata."
-              : "Identified wholesale entity with corporate tax presence and commercial order quantities.",
-          });
-        }
-      });
-
       toast.success("Gemini Classification Completed!", {
-        description: "Evaluated leads against B2B wholesale criteria.",
+        description: res.message,
       });
-    }, 1600);
+    } catch (err: any) {
+      clearInterval(timer);
+      setIsClassifying(false);
+      toast.error(err.message || "Failed to classify leads");
+    }
   };
 
-  const handleManualClassOverride = (lead: Lead, newClass: "b2b" | "consumer") => {
-    onUpdateLead({
-      ...lead,
+  const handleManualClassOverride = (lead: any, newClass: "b2b" | "consumer") => {
+    updateLeadMutation.mutate({
+      id: lead.id,
       aiClass: newClass,
       aiConfidence: 1.0,
       aiReasoning: `Manual override by exporter to ${newClass.toUpperCase()}.`,
@@ -112,7 +91,7 @@ export function ClassificationSection({
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Automatically analyzes company websites, registered business types, and catalog keywords to filter commercial importers from casual retail buyers.
+                Evaluates business taxonomy, wholesale keywords, resale licensing requirements, and order volume signals.
               </p>
             </div>
           </div>
@@ -134,7 +113,7 @@ export function ClassificationSection({
         {isClassifying && (
           <div className="mt-4 pt-3 border-t border-border space-y-1.5">
             <div className="flex justify-between text-xs font-mono text-accent">
-              <span>Evaluating web semantics & business profiles...</span>
+              <span>Running Gemini Flash semantic evaluation on website content...</span>
               <span>{classifyProgress}%</span>
             </div>
             <Progress value={classifyProgress} />
@@ -144,12 +123,11 @@ export function ClassificationSection({
 
       {/* Row: Confidence Filter & Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Controls Card (1/3) */}
         <Card className="space-y-5">
           <CardHeader className="p-0">
-            <CardTitle className="text-sm">Classification Settings</CardTitle>
+            <CardTitle className="text-sm">Classification Controls</CardTitle>
             <CardDescription>
-              Set minimum confidence required to qualify contacts as B2B
+              Set minimum confidence required to qualify contacts as commercial buyers
             </CardDescription>
           </CardHeader>
 
@@ -168,7 +146,7 @@ export function ClassificationSection({
               step={1}
             />
             <p className="text-[11px] text-muted-foreground">
-              Leads with confidence below {Math.round(confidenceThreshold * 100)}% will be held for manual review before outreach.
+              Leads below {Math.round(confidenceThreshold * 100)}% will be held for manual exporter review before outreach.
             </p>
           </div>
 
@@ -182,13 +160,12 @@ export function ClassificationSection({
               <span className="font-mono font-bold text-warning">{consumerCount}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Pending Review:</span>
+              <span className="text-muted-foreground">Pending AI Review:</span>
               <span className="font-mono font-bold text-muted-foreground">{unclassified.length}</span>
             </div>
           </div>
         </Card>
 
-        {/* Charts & Split Distribution (2/3) */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle>AI Verification Distribution</CardTitle>
@@ -197,7 +174,7 @@ export function ClassificationSection({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ClassificationChart leads={leads} />
+            <ClassificationChart leads={leads as any} />
           </CardContent>
         </Card>
       </div>
@@ -211,35 +188,23 @@ export function ClassificationSection({
               Live reasoning and classification audit. You can manually override any AI decision.
             </CardDescription>
           </div>
-          <Badge variant="outline">
-            {leads.length} Records Evaluated
-          </Badge>
+          <Badge variant="outline">{leads.length} Records Evaluated</Badge>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-secondary/50 border-b border-border">
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Company & Website
-                  </th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Detected Profile
-                  </th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Confidence
-                  </th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                    Gemini AI Reasoning
-                  </th>
-                  <th className="py-3 px-4 text-right font-semibold uppercase tracking-wider text-muted-foreground">
-                    Classification
-                  </th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Company &amp; Website</th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Detected Profile</th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Confidence</th>
+                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Gemini AI Reasoning</th>
+                  <th className="py-3 px-4 text-right font-semibold uppercase tracking-wider text-muted-foreground">Classification</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {leads.slice(0, 10).map((lead) => {
-                  const pct = Math.round(lead.aiConfidence * 100);
+                  const pct = Math.round((lead.aiConfidence || 0.9) * 100);
                   return (
                     <tr key={lead.id} className="hover:bg-secondary/30 transition-colors">
                       <td className="py-3 px-4">
@@ -256,12 +221,8 @@ export function ClassificationSection({
                       </td>
 
                       <td className="py-3 px-4">
-                        <span className="font-medium text-foreground">
-                          {lead.buyerType}
-                        </span>
-                        <p className="text-[11px] text-muted-foreground">
-                          {lead.city}, {lead.state}
-                        </p>
+                        <span className="font-medium text-foreground">{lead.buyerType}</span>
+                        <p className="text-[11px] text-muted-foreground">{lead.city}, {lead.state}</p>
                       </td>
 
                       <td className="py-3 px-4">
@@ -271,10 +232,7 @@ export function ClassificationSection({
                             <span className="font-bold text-accent">{pct}%</span>
                           </div>
                           <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-accent"
-                              style={{ width: `${pct}%` }}
-                            />
+                            <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
                           </div>
                         </div>
                       </td>
@@ -289,10 +247,7 @@ export function ClassificationSection({
                         <Select
                           value={lead.aiClass || "unclassified"}
                           onValueChange={(val: any) =>
-                            handleManualClassOverride(
-                              lead,
-                              val === "consumer" ? "consumer" : "b2b"
-                            )
+                            handleManualClassOverride(lead, val === "consumer" ? "consumer" : "b2b")
                           }
                         >
                           <SelectTrigger className="h-7 text-xs w-32 ml-auto">

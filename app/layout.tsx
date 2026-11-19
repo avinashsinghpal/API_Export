@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { QueryProvider } from "@/components/providers/query-provider";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -31,19 +32,21 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${dmSans.variable} ${jetbrainsMono.variable}`}>
       <body className="antialiased min-h-screen bg-background text-foreground font-sans">
-        {children}
-        <Toaster
-          position="top-right"
-          theme="dark"
-          toastOptions={{
-            style: {
-              background: "var(--card)",
-              color: "var(--foreground)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
-            },
-          }}
-        />
+        <QueryProvider>
+          {children}
+          <Toaster
+            position="top-right"
+            theme="dark"
+            toastOptions={{
+              style: {
+                background: "var(--card)",
+                color: "var(--foreground)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius)",
+              },
+            }}
+          />
+        </QueryProvider>
       </body>
     </html>
   );

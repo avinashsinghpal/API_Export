@@ -6,14 +6,8 @@ import {
   Send,
   FileText,
   Paperclip,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  Sparkles,
   Shield,
   Trash2,
-  RefreshCw,
-  ExternalLink,
   Info,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -21,8 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -33,18 +25,20 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { Lead, EmailLog } from "@/lib/types";
+import {
+  useLeadsQuery,
+  useSettingsQuery,
+  useCreateCampaignMutation,
+} from "@/lib/hooks/use-export-leads";
+import { calculateSpamRisk } from "@/lib/email-helpers";
 import { toast } from "sonner";
 
-interface OutreachSectionProps {
-  leads: Lead[];
-  onSendCampaign: (recipients: Lead[], logEntries: EmailLog[]) => void;
-}
+export function OutreachSection() {
+  const { data: leadsData } = useLeadsQuery({ limit: 200 });
+  const { data: settings } = useSettingsQuery();
+  const createCampaignMutation = useCreateCampaignMutation();
 
-export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps) {
-  // Gmail integration stats
-  const dailySentToday = 18;
-  const dailyMaxLimit = 50;
+  const leads = leadsData?.leads || [];
 
   // Composer state
   const [subject, setSubject] = React.useState(
@@ -55,11 +49,7 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
     `Dear {{contact_name}},\n\nI came across {{company_name}} while reviewing top-tier home decor and wellness showrooms in {{state}}, {{country}}.\n\nWe are direct manufacturers and exporters of authentic hand-hammered 7-metal Tibetan Singing Bowls, meditation bells, and bronze acoustic decor based in Moradabad & Jaipur, India.\n\nKey highlights for US wholesalers:\n• 100% hand-tuned frequencies (Chakra sets from 4" to 14")\n• Direct FOB / CIF pricing (saving 35-45% compared to US domestic distributors)\n• Custom laser engraving and retail gift packaging available\n• Low MOQ for trial orders with door-to-door DHL/Air Cargo delivery\n\nI have attached our 2026 Wholesale Product Presentation & Pricing Catalog (PDF) for your review.\n\nCould we arrange a brief 5-minute call or reply with your preferred bowl sizes for complimentary sample dispatch?\n\nWarm regards,\n\nAvinash Singh\nHead of International Trade\nAura Crafts Exports, India\nWhatsApp / Direct: +91 98110 23456\nWeb: https://auracraftsexports.com`
   );
 
-  // Attachment state
-  const [attachment, setAttachment] = React.useState<{
-    name: string;
-    size: string;
-  } | null>({
+  const [attachment, setAttachment] = React.useState<{ name: string; size: string } | null>({
     name: "Singing-Bowls-Wholesale-Catalog-2026.pdf",
     size: "2.4 MB",
   });
@@ -72,115 +62,102 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
     warmUpMode: true,
     skipAlreadyContacted: true,
     autoStopBounce: true,
-    unsubscribeFooter: true,
   });
 
-  // Recipients filter calculation
+  // Eligible recipients
   const eligibleRecipients = React.useMemo(() => {
     return leads.filter((l) => {
       if (l.emailValid !== true) return false;
       if (l.aiClass !== "b2b") return false;
-      if (safeguards.skipAlreadyContacted && l.emailStatus !== "not_sent")
-        return false;
+      if (safeguards.skipAlreadyContacted && l.emailStatus !== "not_sent") return false;
       return true;
     });
   }, [leads, safeguards.skipAlreadyContacted]);
 
-  // Sample recipient for live preview
   const sampleLead = eligibleRecipients[0] || leads[0];
 
   const previewSubject = React.useMemo(() => {
     if (!sampleLead) return subject;
     return subject
       .replace(/{{company_name}}/g, sampleLead.company)
-      .replace(/{{contact_name}}/g, sampleLead.contactName)
+      .replace(/{{contact_name}}/g, sampleLead.contactName || "Purchasing Team")
       .replace(/{{product}}/g, "Singing Bowls")
       .replace(/{{country}}/g, sampleLead.country)
-      .replace(/{{state}}/g, sampleLead.state);
+      .replace(/{{state}}/g, sampleLead.state || "US");
   }, [subject, sampleLead]);
 
   const previewBody = React.useMemo(() => {
     if (!sampleLead) return body;
     return body
       .replace(/{{company_name}}/g, sampleLead.company)
-      .replace(/{{contact_name}}/g, sampleLead.contactName)
+      .replace(/{{contact_name}}/g, sampleLead.contactName || "Purchasing Team")
       .replace(/{{product}}/g, "Singing Bowls")
       .replace(/{{country}}/g, sampleLead.country)
-      .replace(/{{state}}/g, sampleLead.state);
+      .replace(/{{state}}/g, sampleLead.state || "US");
   }, [body, sampleLead]);
 
-  // Dynamic Spam Risk Meter calculation
-  const spamRiskScore = React.useMemo(() => {
-    let score = 10;
-    if (safeguards.dailyCap > 45) score += 30;
-    if (safeguards.delayMin < 45) score += 35;
-    if (!safeguards.warmUpMode) score += 20;
-    if (!safeguards.autoStopBounce) score += 20;
-    if (!safeguards.unsubscribeFooter) score += 25;
-    return Math.min(score, 100);
-  }, [safeguards]);
+  // Spam-risk evaluation
+  const spamEval = React.useMemo(() => {
+    return calculateSpamRisk({
+      subject,
+      body,
+      hasAttachment: !!attachment,
+      attachmentSizeMB: 2.4,
+      hasUnsubscribe: true,
+    });
+  }, [subject, body, attachment]);
 
-  const spamRiskLabel =
-    spamRiskScore < 30 ? "Low" : spamRiskScore < 60 ? "Medium" : "High";
-  const spamRiskColor =
-    spamRiskScore < 30
-      ? "text-accent"
-      : spamRiskScore < 60
-      ? "text-warning"
-      : "text-destructive";
-
-  // Dialog & Sending Simulation state
   const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false);
   const [isSending, setIsSending] = React.useState(false);
-  const [sentCount, setSentCount] = React.useState(0);
-  const [queuedCount, setQueuedCount] = React.useState(0);
 
   const insertToken = (token: string) => {
     setBody((prev) => `${prev} ${token}`);
   };
 
-  const handleStartCampaign = () => {
+  const handleStartCampaign = async () => {
     setConfirmDialogOpen(false);
     setIsSending(true);
-    setSentCount(0);
-    setQueuedCount(eligibleRecipients.length);
 
-    const targetList = eligibleRecipients.slice(0, safeguards.dailyCap);
+    try {
+      const res = await createCampaignMutation.mutateAsync({
+        name: `US Singing Bowls Wholesale - Q4 Campaign`,
+        product: "Singing Bowls",
+        country: "United States",
+        subject,
+        bodyTemplate: body,
+        sendConfig: safeguards,
+      });
 
-    let progressIndex = 0;
-    const interval = setInterval(() => {
-      progressIndex++;
-      setSentCount(progressIndex);
-
-      if (progressIndex >= targetList.length) {
-        clearInterval(interval);
-        setIsSending(false);
-
-        const newLogs: EmailLog[] = targetList.map((lead) => ({
-          id: `log-${Date.now()}-${lead.id}`,
-          leadId: lead.id,
-          company: lead.company,
-          contactName: lead.contactName,
-          email: lead.email,
-          subject: subject.replace(/{{company_name}}/g, lead.company),
-          status: "sent",
-          timestamp: "Just now",
-          sentAt: new Date().toISOString(),
-        }));
-
-        onSendCampaign(targetList, newLogs);
-
-        toast.success("Outreach Campaign Started via Gmail!", {
-          description: `Dispatched ${targetList.length} personalized emails with catalog attachment.`,
-        });
-      }
-    }, 150);
+      setIsSending(false);
+      toast.success("Outreach Campaign Dispatched!", {
+        description: res.message,
+      });
+    } catch (err: any) {
+      setIsSending(false);
+      toast.error(err.message || "Failed to start campaign");
+    }
   };
 
-  const handleSendTestEmail = () => {
-    toast.success("Test Email Dispatched to Connected Exporter Account!", {
-      description: `Sent sample email with merge tags to exportleads.demo@gmail.com. Check inbox.`,
-    });
+  const handleSendTestEmail = async () => {
+    try {
+      const res = await fetch("/api/campaigns/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipientEmail: settings?.senderEmail || "exportleads.demo@gmail.com",
+          subject,
+          bodyTemplate: body,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed test send");
+      toast.success("Test Email Dispatched!", {
+        description: json.message,
+      });
+    } catch (err: any) {
+      toast.error(err.message || "Test send failed");
+    }
   };
 
   return (
@@ -195,48 +172,35 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-sm text-foreground">
-                  Connected Sender: exportleads.demo@gmail.com
+                  Sender: {settings?.senderEmail || "exportleads.demo@gmail.com"}
                 </span>
                 <span className="px-1.5 py-0.5 rounded text-[10px] bg-accent/20 text-accent font-semibold">
                   OAuth Active
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Google Workspace SMTP relay with DKIM, SPF & DMARC 100% passed
+                Google Workspace SMTP relay with DKIM, SPF &amp; DMARC compliance headers
               </p>
             </div>
           </div>
 
           <div className="sm:text-right space-y-1">
             <div className="text-xs text-muted-foreground">
-              Daily Limit:{" "}
-              <strong className="text-foreground font-mono">
-                {dailySentToday + sentCount} / {dailyMaxLimit}
-              </strong>
+              Daily Limit: <strong className="text-foreground font-mono">18 / {settings?.dailyCap || 40}</strong>
             </div>
             <div className="w-40 sm:w-48 h-2 rounded-full bg-secondary overflow-hidden">
-              <div
-                className="h-full bg-accent rounded-full transition-all duration-300"
-                style={{
-                  width: `${((dailySentToday + sentCount) / dailyMaxLimit) * 100}%`,
-                }}
-              />
+              <div className="h-full bg-accent rounded-full" style={{ width: "45%" }} />
             </div>
           </div>
         </Card>
 
-        {/* Recipients Target Summary */}
         <Card className="p-4 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs uppercase font-semibold text-muted-foreground">
-              Target Audience
-            </span>
+            <span className="text-xs uppercase font-semibold text-muted-foreground">Qualified Recipients</span>
             <div className="text-xl font-bold font-mono text-accent">
               {eligibleRecipients.length} Buyers
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Valid email + Verified B2B + Uncontacted
-            </p>
+            <p className="text-[11px] text-muted-foreground">Valid MX + Verified B2B + Uncontacted</p>
           </div>
           <div className="w-9 h-9 rounded-lg bg-accent/10 text-accent flex items-center justify-center">
             <Send className="w-4 h-4" />
@@ -246,15 +210,14 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
 
       {/* Main Composer & Live Merge Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Email Composer */}
         <Card className="space-y-4">
           <CardHeader className="p-0">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">Personalized Email Composer</CardTitle>
-              <span className="text-xs text-muted-foreground">Dynamic Merge Engine</span>
+              <span className="text-xs text-muted-foreground">Dynamic Token Merge</span>
             </div>
             <CardDescription>
-              Write outreach copy. Tokens will be automatically substituted per buyer.
+              Write outreach copy. Tokens will be automatically substituted per recipient.
             </CardDescription>
           </CardHeader>
 
@@ -283,11 +246,8 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
             </div>
           </div>
 
-          {/* Subject Line */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">
-              Subject Line
-            </label>
+            <label className="text-xs font-semibold text-muted-foreground">Subject Line</label>
             <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
@@ -296,10 +256,9 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
             />
           </div>
 
-          {/* Email Body */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Email Body Template (Markdown / Plain Text)
+              Email Body Template (RFC 2822 Alternative)
             </label>
             <Textarea
               value={body}
@@ -328,16 +287,14 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setAttachment(null)}
-                    className="h-7 px-2 text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setAttachment(null)}
+                  className="h-7 px-2 text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
               </div>
             ) : (
               <div
@@ -350,9 +307,7 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
                 className="border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-accent hover:bg-accent/5 transition-colors"
               >
                 <Paperclip className="w-5 h-5 text-muted-foreground mx-auto mb-1" />
-                <p className="text-xs font-medium text-foreground">
-                  Click to re-attach product catalog PDF
-                </p>
+                <p className="text-xs font-medium text-foreground">Click to attach product catalog PDF</p>
               </div>
             )}
           </div>
@@ -369,55 +324,45 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
                 </span>
               </div>
               <CardDescription>
-                How this email will appear in the buyer&apos;s Gmail / Outlook inbox
+                How this email will render in the buyer&apos;s Gmail / Outlook client
               </CardDescription>
             </CardHeader>
 
             <div className="flex-1 py-3 space-y-3 text-xs overflow-y-auto max-h-[460px]">
-              {/* Fake Email Envelope Header */}
               <div className="p-3 rounded-lg bg-secondary/40 border border-border space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">To:</span>
                   <span className="font-mono text-foreground font-medium">
-                    {sampleLead?.contactName} &lt;{sampleLead?.email}&gt;
+                    {sampleLead?.contactName || "Marcus Vance"} &lt;{sampleLead?.email || "marcus@wholesale.com"}&gt;
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">From:</span>
                   <span className="text-foreground">
-                    Avinash Singh (Aura Crafts Exports) &lt;exportleads.demo@gmail.com&gt;
+                    {settings?.senderName || "Avinash Singh"} &lt;{settings?.senderEmail || "exportleads.demo@gmail.com"}&gt;
                   </span>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-border">
                   <span className="text-muted-foreground">Subject:</span>
-                  <span className="font-semibold text-accent truncate max-w-sm">
-                    {previewSubject}
-                  </span>
+                  <span className="font-semibold text-accent truncate max-w-sm">{previewSubject}</span>
                 </div>
               </div>
 
-              {/* Email Content Preview */}
               <div className="p-4 rounded-lg bg-card border border-border whitespace-pre-line text-foreground/90 font-sans leading-relaxed text-xs">
                 {previewBody}
               </div>
 
-              {/* Attachment pill preview */}
               {attachment && (
                 <div className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 border border-border text-[11px]">
                   <FileText className="w-3.5 h-3.5 text-red-400" />
                   <span className="font-medium text-foreground">{attachment.name}</span>
-                  <span className="font-mono text-muted-foreground">
-                    ({attachment.size})
-                  </span>
+                  <span className="font-mono text-muted-foreground">({attachment.size})</span>
                 </div>
               )}
             </div>
 
-            {/* Test Email Action */}
             <div className="pt-3 border-t border-border flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                Verify formatting before mass sending
-              </span>
+              <span className="text-xs text-muted-foreground">Verify formatting before mass sending</span>
               <Button
                 variant="outline"
                 size="sm"
@@ -440,127 +385,98 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
               Deliverability Safeguards &amp; Anti-Spam Controls
             </CardTitle>
             <CardDescription>
-              Engineered to prevent domain burn, spam traps, and Gmail sending blocks
+              Engineered to protect domain reputation and prevent spam blocks
             </CardDescription>
           </div>
 
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">Calculated Spam Risk:</span>
             <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-secondary border border-border">
-              <span className={`text-xs font-bold font-mono ${spamRiskColor}`}>
-                {spamRiskLabel} ({spamRiskScore}/100)
+              <span
+                className={`text-xs font-bold font-mono ${
+                  spamEval.level === "Low"
+                    ? "text-accent"
+                    : spamEval.level === "Medium"
+                    ? "text-warning"
+                    : "text-destructive"
+                }`}
+              >
+                {spamEval.level} ({spamEval.score}/100)
               </span>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
-          {/* Daily Cap */}
           <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-1.5">
             <div className="flex justify-between items-center">
               <span className="font-medium text-foreground">Daily Send Cap</span>
-              <span className="font-mono font-bold text-accent">
-                {safeguards.dailyCap} emails/day
-              </span>
+              <span className="font-mono font-bold text-accent">{safeguards.dailyCap} emails/day</span>
             </div>
             <Input
               type="number"
               value={safeguards.dailyCap}
-              onChange={(e) =>
-                setSafeguards({
-                  ...safeguards,
-                  dailyCap: parseInt(e.target.value) || 20,
-                })
-              }
+              onChange={(e) => setSafeguards({ ...safeguards, dailyCap: parseInt(e.target.value) || 20 })}
               max={50}
               min={5}
               className="h-8 text-xs font-mono"
             />
-            <p className="text-[11px] text-muted-foreground">
-              Maximum recommended for new exporter domains is 40.
-            </p>
+            <p className="text-[11px] text-muted-foreground">Maximum recommended for export cold emails is 40.</p>
           </div>
 
-          {/* Random Delay */}
           <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-1.5">
             <div className="flex justify-between items-center">
               <span className="font-medium text-foreground">Delay Between Emails</span>
-              <span className="font-mono font-bold text-accent">
-                {safeguards.delayMin}s - {safeguards.delayMax}s
-              </span>
+              <span className="font-mono font-bold text-accent">{safeguards.delayMin}s - {safeguards.delayMax}s</span>
             </div>
             <div className="flex items-center gap-2">
               <Input
                 type="number"
                 value={safeguards.delayMin}
-                onChange={(e) =>
-                  setSafeguards({
-                    ...safeguards,
-                    delayMin: parseInt(e.target.value) || 30,
-                  })
-                }
+                onChange={(e) => setSafeguards({ ...safeguards, delayMin: parseInt(e.target.value) || 30 })}
                 className="h-8 text-xs font-mono"
               />
               <span className="text-muted-foreground">to</span>
               <Input
                 type="number"
                 value={safeguards.delayMax}
-                onChange={(e) =>
-                  setSafeguards({
-                    ...safeguards,
-                    delayMax: parseInt(e.target.value) || 120,
-                  })
-                }
+                onChange={(e) => setSafeguards({ ...safeguards, delayMax: parseInt(e.target.value) || 120 })}
                 className="h-8 text-xs font-mono"
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Jittered random intervals emulate manual human typing.
-            </p>
+            <p className="text-[11px] text-muted-foreground">Jittered random intervals emulate human typing.</p>
           </div>
 
-          {/* Warmup & Auto stop switches */}
           <div className="p-3 rounded-lg bg-secondary/30 border border-border space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="font-medium text-foreground">Gradual Warm-Up Mode</span>
               <Switch
                 checked={safeguards.warmUpMode}
-                onCheckedChange={(c) =>
-                  setSafeguards({ ...safeguards, warmUpMode: c })
-                }
+                onCheckedChange={(c) => setSafeguards({ ...safeguards, warmUpMode: c })}
               />
             </div>
             <div className="flex items-center justify-between">
               <span className="font-medium text-foreground">Skip Already Contacted</span>
               <Switch
                 checked={safeguards.skipAlreadyContacted}
-                onCheckedChange={(c) =>
-                  setSafeguards({ ...safeguards, skipAlreadyContacted: c })
-                }
+                onCheckedChange={(c) => setSafeguards({ ...safeguards, skipAlreadyContacted: c })}
               />
             </div>
             <div className="flex items-center justify-between">
               <span className="font-medium text-foreground">Auto-Stop if Bounce &gt; 5%</span>
               <Switch
                 checked={safeguards.autoStopBounce}
-                onCheckedChange={(c) =>
-                  setSafeguards({ ...safeguards, autoStopBounce: c })
-                }
+                onCheckedChange={(c) => setSafeguards({ ...safeguards, autoStopBounce: c })}
               />
             </div>
           </div>
         </div>
 
-        {/* Start Campaign Bar */}
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-xs text-muted-foreground flex items-center gap-2">
             <Info className="w-4 h-4 text-accent" />
             <span>
-              Ready to send to{" "}
-              <strong className="text-foreground">
-                {Math.min(eligibleRecipients.length, safeguards.dailyCap)}
-              </strong>{" "}
-              qualified US buyers today.
+              Ready to send to <strong className="text-foreground">{Math.min(eligibleRecipients.length, safeguards.dailyCap)}</strong> qualified buyers today.
             </span>
           </div>
 
@@ -574,9 +490,7 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
             {isSending ? (
               <>
                 <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
-                <span>
-                  Sending ({sentCount}/{Math.min(eligibleRecipients.length, safeguards.dailyCap)})
-                </span>
+                <span>Dispatching Emails...</span>
               </>
             ) : (
               <>
@@ -588,7 +502,7 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
         </div>
       </Card>
 
-      {/* Confirmation Dialog before sending */}
+      {/* Confirmation Dialog */}
       <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -599,8 +513,7 @@ export function OutreachSection({ leads, onSendCampaign }: OutreachSectionProps)
                 {Math.min(eligibleRecipients.length, safeguards.dailyCap)} personalized emails
               </strong>{" "}
               with <strong>Singing-Bowls-Wholesale-Catalog-2026.pdf</strong> attached.
-              <br />
-              <br />
+              <br /><br />
               All deliverability throttles ({safeguards.delayMin}-{safeguards.delayMax}s delay, daily cap of {safeguards.dailyCap}) will be automatically applied.
             </AlertDialogDescription>
           </AlertDialogHeader>

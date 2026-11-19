@@ -11,98 +11,21 @@ import { ClassificationSection } from "@/components/dashboard/sections/classific
 import { OutreachSection } from "@/components/dashboard/sections/outreach-section";
 import { ReportsSection } from "@/components/dashboard/sections/reports-section";
 import { SettingsSection } from "@/components/dashboard/sections/settings-section";
-
-import {
-  INITIAL_LEADS,
-  INITIAL_DISCOVERY_RUNS,
-  INITIAL_CAMPAIGNS,
-  INITIAL_EMAIL_LOGS,
-} from "@/lib/mock-data";
-import { Lead, DiscoveryRun, Campaign, EmailLog } from "@/lib/types";
+import { useReportsSummaryQuery, useIntegrationsQuery } from "@/lib/hooks/use-export-leads";
+import { AlertTriangle, Key, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
-  // App Shell Navigation State
   const [currentSection, setCurrentSection] = React.useState<SectionId>("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
+  const [bannerDismissed, setBannerDismissed] = React.useState(false);
 
-  // Central Application Data Stores
-  const [leads, setLeads] = React.useState<Lead[]>(INITIAL_LEADS);
-  const [discoveryRuns, setDiscoveryRuns] = React.useState<DiscoveryRun[]>(INITIAL_DISCOVERY_RUNS);
-  const [campaigns, setCampaigns] = React.useState<Campaign[]>(INITIAL_CAMPAIGNS);
-  const [emailLogs, setEmailLogs] = React.useState<EmailLog[]>(INITIAL_EMAIL_LOGS);
-  const [duplicatesBlocked, setDuplicatesBlocked] = React.useState<number>(11);
+  const { data: summary } = useReportsSummaryQuery();
+  const { data: integrations = [] } = useIntegrationsQuery();
 
-  // Lead update handler
-  const handleUpdateLead = React.useCallback((updated: Lead) => {
-    setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-  }, []);
-
-  // Delete leads handler
-  const handleDeleteLeads = React.useCallback((ids: string[]) => {
-    setLeads((prev) => prev.filter((l) => !ids.includes(l.id)));
-  }, []);
-
-  // Add newly discovered leads handler (with deduplication tracking)
-  const handleAddDiscoveredLeads = React.useCallback(
-    (newLeads: Lead[], run: DiscoveryRun) => {
-      setLeads((prev) => [...newLeads, ...prev]);
-      setDiscoveryRuns((prev) => [run, ...prev]);
-      setDuplicatesBlocked((prev) => prev + run.duplicatesBlocked);
-    },
-    []
-  );
-
-  // Ingest imported leads from CSV
-  const handleImportLeads = React.useCallback((imported: Lead[]) => {
-    setLeads((prev) => [...imported, ...prev]);
-  }, []);
-
-  // Start campaign handler
-  const handleSendCampaign = React.useCallback(
-    (recipients: Lead[], newLogs: EmailLog[]) => {
-      const recipientIds = recipients.map((r) => r.id);
-      setLeads((prev) =>
-        prev.map((l) =>
-          recipientIds.includes(l.id) ? { ...l, emailStatus: "sent" } : l
-        )
-      );
-
-      setEmailLogs((prev) => [...newLogs, ...prev]);
-
-      const newCampaign: Campaign = {
-        id: `CAMP-${202 + campaigns.length}`,
-        name: `Singing Bowls US Wholesale - Batch #${campaigns.length + 1}`,
-        product: "Singing Bowls (7-Chakra & Antique)",
-        country: "United States",
-        sent: recipients.length,
-        delivered: recipients.length,
-        opened: 0,
-        replied: 0,
-        bounced: 0,
-        status: "active",
-        date: "Today",
-      };
-
-      setCampaigns((prev) => [newCampaign, ...prev]);
-    },
-    [campaigns.length]
-  );
-
-  // Clear & Reset database handlers for Settings
-  const handleClearDatabase = React.useCallback(() => {
-    setLeads([]);
-    setEmailLogs([]);
-    setDiscoveryRuns([]);
-  }, []);
-
-  const handleResetDemoData = React.useCallback(() => {
-    setLeads(INITIAL_LEADS);
-    setDiscoveryRuns(INITIAL_DISCOVERY_RUNS);
-    setCampaigns(INITIAL_CAMPAIGNS);
-    setEmailLogs(INITIAL_EMAIL_LOGS);
-    setDuplicatesBlocked(11);
-  }, []);
+  const placesIntegration = integrations.find((p: any) => p.id === "google_places");
+  const showMissingKeyBanner = !bannerDismissed && placesIntegration && !placesIntegration.hasKey;
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -112,14 +35,13 @@ export default function DashboardPage() {
         onSelectSection={setCurrentSection}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        leadCount={leads.length}
+        leadCount={summary?.totalLeads ?? 36}
       />
 
       {/* Main Container */}
       <div
-        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-out ${
-          sidebarCollapsed ? "ml-[72px]" : "ml-[260px]"
-        }`}
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-out ${sidebarCollapsed ? "ml-[72px]" : "ml-[260px]"
+          }`}
       >
         {/* Sticky Header */}
         <Header
@@ -135,71 +57,86 @@ export default function DashboardPage() {
 
         {/* Dynamic Section Body */}
         <main className="flex-1 p-6 space-y-6">
+          {showMissingKeyBanner && (
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-card border border-warning/40 text-xs shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded-lg bg-warning/15 text-warning flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Local Demo Mode Active — No Google Places API Key configured
+                  </p>
+                  <p className="text-muted-foreground">
+                    Using pre-seeded US buyer directory. To discover live Google Places businesses, add your key in{" "}
+                    <button
+                      type="button"
+                      onClick={() => setCurrentSection("settings")}
+                      className="text-accent hover:underline font-semibold"
+                    >
+                      Settings &rarr;
+                    </button>{" "}
+                    or configure <code className="font-mono bg-secondary px-1 py-0.5 rounded text-[11px]">.env.local</code>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentSection("settings")}
+                  className="h-7 text-xs gap-1.5"
+                >
+                  <Key className="w-3 h-3 text-accent" />
+                  <span>Configure Key</span>
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setBannerDismissed(true)}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div
             key={currentSection}
             className="animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
           >
             {currentSection === "overview" && (
-              <OverviewSection
-                leads={leads}
-                emailLogs={emailLogs}
-                onSelectSection={setCurrentSection}
-                duplicatesBlocked={duplicatesBlocked}
-              />
+              <OverviewSection onSelectSection={setCurrentSection} />
             )}
 
             {currentSection === "discovery" && (
-              <DiscoverySection
-                onAddLeads={handleAddDiscoveredLeads}
-                discoveryRuns={discoveryRuns}
-                existingLeads={leads}
-              />
+              <DiscoverySection />
             )}
 
             {currentSection === "database" && (
-              <DatabaseSection
-                leads={leads}
-                onUpdateLead={handleUpdateLead}
-                onDeleteLeads={handleDeleteLeads}
-                onImportLeads={handleImportLeads}
-                duplicatesBlocked={duplicatesBlocked}
-                onNavigateToOutreach={() => setCurrentSection("outreach")}
-              />
+              <DatabaseSection />
             )}
 
             {currentSection === "validation" && (
-              <ValidationSection
-                leads={leads}
-                onUpdateLead={handleUpdateLead}
-              />
+              <ValidationSection />
             )}
 
             {currentSection === "classification" && (
-              <ClassificationSection
-                leads={leads}
-                onUpdateLead={handleUpdateLead}
-              />
+              <ClassificationSection />
             )}
 
             {currentSection === "outreach" && (
-              <OutreachSection
-                leads={leads}
-                onSendCampaign={handleSendCampaign}
-              />
+              <OutreachSection />
             )}
 
             {currentSection === "reports" && (
-              <ReportsSection
-                leads={leads}
-                campaigns={campaigns}
-              />
+              <ReportsSection />
             )}
 
             {currentSection === "settings" && (
-              <SettingsSection
-                onClearDatabase={handleClearDatabase}
-                onResetDemoData={handleResetDemoData}
-              />
+              <SettingsSection />
             )}
           </div>
         </main>

@@ -113,3 +113,13 @@ $RECYCLE.BIN/
 *.tmp
 *.temp
 .cache/
+.npm-cache/
+
+# ==========================================
+# Local SQLite Database
+# ==========================================
+/data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

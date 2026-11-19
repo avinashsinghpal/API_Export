@@ -3,18 +3,14 @@
 import * as React from "react";
 import {
   Search,
-  SlidersHorizontal,
   Terminal,
-  Globe,
-  Building,
-  CheckCircle2,
-  Clock,
   Sparkles,
   ExternalLink,
   PlusCircle,
   Copy,
   ChevronRight,
   ShieldAlert,
+  Coins,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,34 +33,31 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Lead, DiscoveryRun } from "@/lib/types";
+import {
+  useDiscoveryRunsQuery,
+  useRunDiscoveryMutation,
+  useCreateLeadMutation,
+} from "@/lib/hooks/use-export-leads";
 import { toast } from "sonner";
 
-interface DiscoverySectionProps {
-  onAddLeads: (newLeads: Lead[], run: DiscoveryRun) => void;
-  discoveryRuns: DiscoveryRun[];
-  existingLeads: Lead[];
-}
+export function DiscoverySection() {
+  const { data: runs = [], refetch: refetchRuns } = useDiscoveryRunsQuery();
+  const runDiscoveryMutation = useRunDiscoveryMutation();
+  const createLeadMutation = useCreateLeadMutation();
 
-export function DiscoverySection({
-  onAddLeads,
-  discoveryRuns,
-  existingLeads,
-}: DiscoverySectionProps) {
-  // Discovery form state
+  // Search form configuration
   const [product, setProduct] = React.useState("Singing Bowls");
   const [category, setCategory] = React.useState("Home Decor");
   const [country, setCountry] = React.useState("United States");
   const [stateFilter, setStateFilter] = React.useState("Texas");
-  const [cityFilter, setCityFilter] = React.useState("Austin / Dallas");
+  const [cityFilter, setCityFilter] = React.useState("Austin");
 
-  // Sources toggles
+  // Providers toggles
   const [sources, setSources] = React.useState({
-    google: true,
-    linkedin: true,
-    directories: true,
-    websites: true,
-    facebook: false,
+    google_places: true,
+    google_search: true,
+    apollo: true,
+    web_enrich: true,
   });
 
   // Buyer types multi-select chips
@@ -87,7 +80,7 @@ export function DiscoverySection({
   // Active Tab: Automated vs Manual Toolkit
   const [activeTab, setActiveTab] = React.useState<"automated" | "manual">("automated");
 
-  // Running simulation state
+  // Real-time SSE Log stream state
   const [isRunning, setIsRunning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [logs, setLogs] = React.useState<string[]>([]);
@@ -101,8 +94,8 @@ export function DiscoverySection({
     phone: "",
     website: "",
     state: "Texas",
-    city: "Houston",
-    buyerType: "Wholesaler" as const,
+    city: "Austin",
+    buyerType: "WHOLESALER",
   });
 
   const toggleBuyerType = (type: string) => {
@@ -115,228 +108,99 @@ export function DiscoverySection({
     }
   };
 
-  const handleRunDiscovery = () => {
+  const handleRunDiscovery = async () => {
     setIsRunning(true);
     setProgress(5);
-    setLogs([`[0.0s] Initializing crawler for product '${product}' in ${country} (${stateFilter || "All States"})...`]);
+    setLogs([`[0.0s] Initializing discovery pipeline for '${product}' in ${country} (${stateFilter || "All"})...`]);
 
-    const activeSourcesList = Object.entries(sources)
+    const activeProviders = Object.entries(sources)
       .filter(([_, v]) => v)
-      .map(([k]) => k.toUpperCase());
+      .map(([k]) => k);
 
-    const steps = [
-      { delay: 400, pct: 20, log: `[0.4s] Querying Google Maps & Business Search with geo-bbox ${stateFilter} [${product} wholesale OR distributor]...` },
-      { delay: 900, pct: 45, log: `[0.9s] Scanning ThomasNet & US Trade Registries for HS-code 9206 (Percussion/Acoustic Instruments)...` },
-      { delay: 1400, pct: 68, log: `[1.4s] Parsing company websites, extracting owner/buyer emails & telephone contacts...` },
-      { delay: 1900, pct: 85, log: `[1.9s] Cross-referencing against internal database: checked 36 existing leads for duplicate domains...` },
-      { delay: 2400, pct: 100, log: `[2.4s] Discovery complete. 5 new commercial leads found, 2 duplicate domains blocked.` },
-    ];
+    try {
+      // Connect to SSE stream
+      const streamRunId = `RUN-${Date.now().toString().slice(-4)}`;
+      const eventSource = new EventSource(`/api/discovery/runs/${streamRunId}/stream`);
 
-    steps.forEach(({ delay, pct, log }) => {
-      setTimeout(() => {
-        setProgress(pct);
-        setLogs((prev) => [...prev, log]);
-      }, delay);
-    });
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          setProgress(payload.progress);
+          setLogs((prev) => [...prev, payload.log]);
+        } catch (e) {}
+      };
 
-    setTimeout(() => {
-      setIsRunning(false);
+      eventSource.onerror = () => {
+        eventSource.close();
+      };
 
-      // Create 5 fresh mock leads
-      const runId = `RUN-${1050 + discoveryRuns.length}`;
-      const newDiscoveredLeads: Lead[] = [
-        {
-          id: `lead-${Date.now()}-1`,
-          company: `${stateFilter || "US"} Artisan Decor & Sound Co.`,
-          website: `https://${stateFilter.toLowerCase().replace(/\s+/g, "")}artisandecor.com`,
-          contactName: "Julian Vance",
-          email: `orders@${stateFilter.toLowerCase().replace(/\s+/g, "")}artisandecor.com`,
-          phone: "+1 (512) 555-0391",
-          country: "United States",
-          state: stateFilter || "Texas",
-          city: cityFilter || "Austin",
-          source: "google",
-          buyerType: "Wholesaler",
-          emailValid: true,
-          aiClass: "b2b",
-          aiConfidence: 0.94,
-          aiReasoning: "Commercial showroom holding resale certificate in Texas wholesale district.",
-          emailStatus: "not_sent",
-          createdAt: new Date().toISOString().split("T")[0],
-          called: false,
-        },
-        {
-          id: `lead-${Date.now()}-2`,
-          company: "Lone Star Holistic Imports",
-          website: "https://lonestarholisticimports.com",
-          contactName: "Hannah Morales",
-          email: "hannah@lonestarholisticimports.com",
-          phone: "+1 (214) 555-0812",
-          country: "United States",
-          state: "Texas",
-          city: "Dallas",
-          source: "directory",
-          buyerType: "Importer",
-          emailValid: true,
-          aiClass: "b2b",
-          aiConfidence: 0.96,
-          aiReasoning: "Registered importer of oriental sound instruments, gongs, and spiritual metalware.",
-          emailStatus: "not_sent",
-          createdAt: new Date().toISOString().split("T")[0],
-          called: false,
-        },
-        {
-          id: `lead-${Date.now()}-3`,
-          company: "Southwest Meditation Studio & Supply",
-          website: "https://swmeditationsupply.com",
-          contactName: "Austin Wright",
-          email: "procurement@swmeditationsupply.com",
-          phone: "+1 (512) 555-0941",
-          country: "United States",
-          state: "Texas",
-          city: "Austin",
-          source: "linkedin",
-          buyerType: "Wellness Store",
-          emailValid: true,
-          aiClass: "b2b",
-          aiConfidence: 0.91,
-          aiReasoning: "Operates 3 wellness stores and stocks singing bowls for regional practitioners.",
-          emailStatus: "not_sent",
-          createdAt: new Date().toISOString().split("T")[0],
-          called: false,
-        },
-        {
-          id: `lead-${Date.now()}-4`,
-          company: "Houston Mystic Haven Gifts",
-          website: "https://houstonmystichaven.com",
-          contactName: "Clara Bennett",
-          email: "clara@houstonmystichaven.com",
-          phone: "+1 (713) 555-0143",
-          country: "United States",
-          state: "Texas",
-          city: "Houston",
-          source: "website",
-          buyerType: "Retailer",
-          emailValid: true,
-          aiClass: "b2b",
-          aiConfidence: 0.88,
-          aiReasoning: "Retail gift showroom stocking hand-cast brass and Tibetan items.",
-          emailStatus: "not_sent",
-          createdAt: new Date().toISOString().split("T")[0],
-          called: false,
-        },
-        {
-          id: `lead-${Date.now()}-5`,
-          company: "Dallas Sound Sanctuary LLC",
-          website: "https://dallassoundsanctuary.com",
-          contactName: "Markus Aurel",
-          email: "markus@dallassoundsanctuary.com",
-          phone: "+1 (972) 555-0128",
-          country: "United States",
-          state: "Texas",
-          city: "Plano",
-          source: "google",
-          buyerType: "Showroom",
-          emailValid: true,
-          aiClass: "b2b",
-          aiConfidence: 0.93,
-          aiReasoning: "Specialty sound therapy showroom buying direct in wholesale pallet volumes.",
-          emailStatus: "not_sent",
-          createdAt: new Date().toISOString().split("T")[0],
-          called: false,
-        },
-      ];
-
-      const newRun: DiscoveryRun = {
-        id: runId,
+      // Trigger server discovery mutation
+      const result = await runDiscoveryMutation.mutateAsync({
         product,
         category,
         country,
         state: stateFilter,
         city: cityFilter,
-        sources: activeSourcesList,
-        leadsFound: 5,
-        duplicatesBlocked: 2,
-        status: "completed",
-        date: "Just now",
-      };
-
-      onAddLeads(newDiscoveredLeads, newRun);
-
-      toast.success(`Discovery Run ${runId} Finished!`, {
-        description: `Found 5 new qualified US buyers for "${product}". 2 duplicates blocked.`,
+        buyerTypes,
+        providers: activeProviders,
+        resultCap: 15,
       });
-    }, 2800);
+
+      eventSource.close();
+      setIsRunning(false);
+      setProgress(100);
+      refetchRuns();
+
+      toast.success("Discovery Run Completed!", {
+        description: result.message,
+      });
+    } catch (err: any) {
+      setIsRunning(false);
+      toast.error("Discovery failed", {
+        description: err.message,
+      });
+    }
   };
 
-  const handleManualAddLead = () => {
+  const handleManualAddLead = async () => {
     if (!manualForm.company || !manualForm.email) {
       toast.error("Please provide company name and email");
       return;
     }
 
-    // Check duplicate
-    const isDup = existingLeads.some(
-      (l) =>
-        l.email.toLowerCase() === manualForm.email.toLowerCase() ||
-        (manualForm.website && l.website.toLowerCase().includes(manualForm.website.toLowerCase()))
-    );
-
-    if (isDup) {
-      toast.error("Duplicate lead blocked!", {
-        description: `The email ${manualForm.email} or website already exists in your leads database.`,
+    try {
+      await createLeadMutation.mutateAsync({
+        company: manualForm.company,
+        contactName: manualForm.contactName,
+        email: manualForm.email,
+        phone: manualForm.phone,
+        website: manualForm.website || `https://${manualForm.company.toLowerCase().replace(/\s+/g, "")}.com`,
+        state: manualForm.state,
+        city: manualForm.city,
+        country: "United States",
+        buyerType: manualForm.buyerType as any,
+        source: "MANUAL",
       });
-      return;
+
+      setManualDialogOpen(false);
+      toast.success("Lead successfully added!", {
+        description: `${manualForm.company} saved with MX & AI validation.`,
+      });
+      setManualForm({
+        company: "",
+        contactName: "",
+        email: "",
+        phone: "",
+        website: "",
+        state: "Texas",
+        city: "Austin",
+        buyerType: "WHOLESALER",
+      });
+    } catch (err: any) {
+      toast.error("Could not add lead", {
+        description: err.message,
+      });
     }
-
-    const newLead: Lead = {
-      id: `lead-manual-${Date.now()}`,
-      company: manualForm.company,
-      website: manualForm.website || `https://${manualForm.company.toLowerCase().replace(/\s+/g, "")}.com`,
-      contactName: manualForm.contactName || "Purchasing Manager",
-      email: manualForm.email,
-      phone: manualForm.phone || "+1 (555) 019-2831",
-      country: "United States",
-      state: manualForm.state,
-      city: manualForm.city,
-      source: "website",
-      buyerType: manualForm.buyerType,
-      emailValid: true,
-      aiClass: "b2b",
-      aiConfidence: 0.92,
-      aiReasoning: "Manually added and verified wholesale contact.",
-      emailStatus: "not_sent",
-      createdAt: new Date().toISOString().split("T")[0],
-      called: false,
-    };
-
-    onAddLeads([newLead], {
-      id: `MANUAL-${Date.now().toString().slice(-4)}`,
-      product: "Singing Bowls",
-      category: "Home Decor",
-      country: "United States",
-      state: manualForm.state,
-      sources: ["Manual Entry"],
-      leadsFound: 1,
-      duplicatesBlocked: 0,
-      status: "completed",
-      date: "Just now",
-    });
-
-    setManualDialogOpen(false);
-    toast.success("Lead successfully added!", {
-      description: `${manualForm.company} added to central database.`,
-    });
-    setManualForm({
-      company: "",
-      contactName: "",
-      email: "",
-      phone: "",
-      website: "",
-      state: "Texas",
-      city: "Houston",
-      buyerType: "Wholesaler",
-    });
   };
 
   return (
@@ -386,12 +250,17 @@ export function DiscoverySection({
               <CardHeader className="p-0">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Search & Target Configuration</CardTitle>
+                    <CardTitle>Search &amp; Target Configuration</CardTitle>
                     <CardDescription>
-                      Target product, geographic destination, and commercial filters
+                      Target export product, destination geographic niche, and real licensed providers
                     </CardDescription>
                   </div>
-                  <Badge variant="accent">US Market Focus</Badge>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1 bg-secondary px-2 py-0.5 rounded">
+                      <Coins className="w-3 h-3 text-accent" /> Est. Cost: ~\$0.08 / lead
+                    </span>
+                    <Badge variant="accent">US Market</Badge>
+                  </div>
                 </div>
               </CardHeader>
 
@@ -416,10 +285,10 @@ export function DiscoverySection({
                       <SelectValue placeholder="Category" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Home Decor">Home Decor & Accents</SelectItem>
-                      <SelectItem value="Wellness & Spa">Wellness, Spa & Sound Healing</SelectItem>
-                      <SelectItem value="Handicrafts">Artisanal Metal Handicrafts</SelectItem>
-                      <SelectItem value="Spiritual Goods">Meditation & Spiritual Goods</SelectItem>
+                      <SelectItem value="Home Decor">Home Decor &amp; Accents</SelectItem>
+                      <SelectItem value="Wellness & Spa">Wellness &amp; Sound Healing</SelectItem>
+                      <SelectItem value="Handicrafts">Artisanal Metal Crafts</SelectItem>
+                      <SelectItem value="Spiritual Goods">Meditation &amp; Spiritual Goods</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -443,7 +312,7 @@ export function DiscoverySection({
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">
-                    Target State / Province (Optional)
+                    Target State / City (Niche Hub)
                   </label>
                   <Input
                     value={stateFilter}
@@ -453,55 +322,53 @@ export function DiscoverySection({
                 </div>
               </div>
 
-              {/* Source toggles */}
+              {/* Provider Toggles */}
               <div className="pt-2 border-t border-border">
                 <label className="text-xs font-semibold text-muted-foreground block mb-3">
-                  Discovery Channels & Crawl Sources
+                  Connected Data Discovery Providers
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50 border border-border">
-                    <span className="text-xs font-medium text-foreground">Google & Maps</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Google Places</p>
+                      <p className="text-[10px] text-muted-foreground">Showrooms</p>
+                    </div>
                     <Switch
-                      checked={sources.google}
-                      onCheckedChange={(checked) =>
-                        setSources((prev) => ({ ...prev, google: checked }))
-                      }
+                      checked={sources.google_places}
+                      onCheckedChange={(c) => setSources((s) => ({ ...s, google_places: c }))}
                     />
                   </div>
+
                   <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50 border border-border">
-                    <span className="text-xs font-medium text-foreground">LinkedIn Intel</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Google Search</p>
+                      <p className="text-[10px] text-muted-foreground">Wholesalers</p>
+                    </div>
                     <Switch
-                      checked={sources.linkedin}
-                      onCheckedChange={(checked) =>
-                        setSources((prev) => ({ ...prev, linkedin: checked }))
-                      }
+                      checked={sources.google_search}
+                      onCheckedChange={(c) => setSources((s) => ({ ...s, google_search: c }))}
                     />
                   </div>
+
                   <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50 border border-border">
-                    <span className="text-xs font-medium text-foreground">B2B Directories</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Apollo B2B</p>
+                      <p className="text-[10px] text-muted-foreground">Procurement</p>
+                    </div>
                     <Switch
-                      checked={sources.directories}
-                      onCheckedChange={(checked) =>
-                        setSources((prev) => ({ ...prev, directories: checked }))
-                      }
+                      checked={sources.apollo}
+                      onCheckedChange={(c) => setSources((s) => ({ ...s, apollo: c }))}
                     />
                   </div>
+
                   <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50 border border-border">
-                    <span className="text-xs font-medium text-foreground">Company Websites</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Web Enricher</p>
+                      <p className="text-[10px] text-muted-foreground">robots.txt safe</p>
+                    </div>
                     <Switch
-                      checked={sources.websites}
-                      onCheckedChange={(checked) =>
-                        setSources((prev) => ({ ...prev, websites: checked }))
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50 border border-border">
-                    <span className="text-xs font-medium text-foreground">Facebook Pages</span>
-                    <Switch
-                      checked={sources.facebook}
-                      onCheckedChange={(checked) =>
-                        setSources((prev) => ({ ...prev, facebook: checked }))
-                      }
+                      checked={sources.web_enrich}
+                      onCheckedChange={(c) => setSources((s) => ({ ...s, web_enrich: c }))}
                     />
                   </div>
                 </div>
@@ -542,19 +409,19 @@ export function DiscoverySection({
               <div className="pt-2 flex items-center justify-between gap-4">
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <ShieldAlert className="w-4 h-4 text-accent" />
-                  <span>Deduplication & MX-syntax validation active</span>
+                  <span>Deduplication &amp; MX validation automatically executed</span>
                 </div>
 
                 <Button
                   variant="accent"
                   onClick={handleRunDiscovery}
                   disabled={isRunning}
-                  className="gap-2 min-w-[160px]"
+                  className="gap-2 min-w-[160px] font-semibold"
                 >
                   {isRunning ? (
                     <>
                       <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
-                      <span>Scanning Sources...</span>
+                      <span>Scanning Providers...</span>
                     </>
                   ) : (
                     <>
@@ -570,9 +437,9 @@ export function DiscoverySection({
             <div className="space-y-4">
               <Card className="bg-card border border-border">
                 <CardHeader>
-                  <CardTitle className="text-sm">Geographic Targeting Tip</CardTitle>
+                  <CardTitle className="text-sm">Geographic Niche Tip</CardTitle>
                   <CardDescription>
-                    Narrow down geographically to achieve 4x higher open and response rates
+                    Achieve 4x higher response rates by pitching specific US metro trade marts
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -582,8 +449,8 @@ export function DiscoverySection({
                         1
                       </div>
                       <div className="text-xs">
-                        <p className="font-semibold text-foreground">Country Level</p>
-                        <p className="text-muted-foreground">United States (US import laws)</p>
+                        <p className="font-semibold text-foreground">Target Country</p>
+                        <p className="text-muted-foreground">United States (Harmonized Tariff 9206)</p>
                       </div>
                     </div>
 
@@ -596,8 +463,8 @@ export function DiscoverySection({
                         2
                       </div>
                       <div className="text-xs">
-                        <p className="font-semibold text-foreground">State Hubs</p>
-                        <p className="text-muted-foreground">Texas (Dallas/Austin Design District)</p>
+                        <p className="font-semibold text-foreground">Regional Wholesale Hubs</p>
+                        <p className="text-muted-foreground">Texas (Dallas World Trade Center)</p>
                       </div>
                     </div>
 
@@ -610,14 +477,14 @@ export function DiscoverySection({
                         3
                       </div>
                       <div className="text-xs">
-                        <p className="font-semibold text-foreground">Metro & City Niches</p>
-                        <p className="text-muted-foreground">Showrooms & Holistic Centers</p>
+                        <p className="font-semibold text-foreground">Commercial Showrooms</p>
+                        <p className="text-muted-foreground">Holistic Living &amp; Home Accents</p>
                       </div>
                     </div>
                   </div>
 
                   <p className="text-[11px] text-muted-foreground bg-secondary/60 p-2.5 rounded-lg border border-border">
-                    💡 <strong className="text-foreground">Pro Exporter Insight:</strong> US buyers respond best when you mention their city or trade mart in the subject line (e.g. &quot;Dallas Trade Mart Singing Bowls Supplier&quot;).
+                    💡 <strong className="text-foreground">Pro Exporter Tip:</strong> US wholesale showroom buyers open emails at a 62% higher rate when FOB pricing and catalog PDFs are mentioned in the first 2 lines.
                   </p>
                 </CardContent>
               </Card>
@@ -629,13 +496,13 @@ export function DiscoverySection({
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono text-accent flex items-center gap-1.5">
                         <Terminal className="w-3.5 h-3.5" />
-                        Live Crawler Output
+                        Live SSE Job Stream
                       </span>
                       <span className="font-mono text-muted-foreground">{progress}%</span>
                     </div>
                     <Progress value={progress} />
                   </div>
-                  <div className="bg-black/60 rounded-lg p-3 font-mono text-[11px] text-green-400/90 space-y-1 max-h-36 overflow-y-auto">
+                  <div className="bg-black/60 rounded-lg p-3 font-mono text-[11px] text-green-400/90 space-y-1 max-h-40 overflow-y-auto">
                     {logs.map((log, i) => (
                       <div key={i} className="leading-tight">
                         {log}
@@ -653,83 +520,49 @@ export function DiscoverySection({
               <div>
                 <CardTitle>Recent Discovery Runs</CardTitle>
                 <CardDescription>
-                  Audit log of automated crawls, leads ingested, and duplicates blocked
+                  Audit trail of automated searches, qualified leads found, and duplicates blocked
                 </CardDescription>
               </div>
-              <Badge variant="outline">
-                Total Runs: {discoveryRuns.length}
-              </Badge>
+              <Badge variant="outline">Total Runs: {runs.length}</Badge>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-secondary/50 border-b border-border">
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Run ID
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Target Product
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Destination
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Sources
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Leads Found
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Duplicates Blocked
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Status
-                      </th>
-                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">
-                        Date / Time
-                      </th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Run ID</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Product</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Destination</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Sources</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Leads Found</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Duplicates Blocked</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                      <th className="py-3 px-4 font-semibold uppercase tracking-wider text-muted-foreground">Date / Time</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {discoveryRuns.map((run) => (
-                      <tr
-                        key={run.id}
-                        className="hover:bg-secondary/30 transition-colors"
-                      >
-                        <td className="py-3 px-4 font-mono font-medium text-accent">
-                          {run.id}
-                        </td>
-                        <td className="py-3 px-4 font-medium text-foreground">
-                          {run.product}
-                        </td>
+                    {runs.map((run) => (
+                      <tr key={run.id} className="hover:bg-secondary/30 transition-colors">
+                        <td className="py-3 px-4 font-mono font-medium text-accent">{run.id}</td>
+                        <td className="py-3 px-4 font-medium text-foreground">{run.product}</td>
                         <td className="py-3 px-4 text-muted-foreground">
                           {run.country} {run.state ? `(${run.state})` : ""}
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">
                           <div className="flex flex-wrap gap-1">
                             {run.sources.map((s) => (
-                              <span
-                                key={s}
-                                className="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-foreground font-mono"
-                              >
+                              <span key={s} className="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-foreground font-mono">
                                 {s}
                               </span>
                             ))}
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono font-bold text-accent">
-                          +{run.leadsFound}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-muted-foreground">
-                          {run.duplicatesBlocked}
-                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-accent">+{run.leadsFound}</td>
+                        <td className="py-3 px-4 font-mono text-muted-foreground">{run.duplicatesBlocked}</td>
                         <td className="py-3 px-4">
                           <Badge variant="success">Completed</Badge>
                         </td>
-                        <td className="py-3 px-4 font-mono text-muted-foreground">
-                          {run.date}
-                        </td>
+                        <td className="py-3 px-4 font-mono text-muted-foreground">{run.date}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -739,7 +572,7 @@ export function DiscoverySection({
           </Card>
         </>
       ) : (
-        /* Manual Sourcing Toolkit (Section 4.9) */
+        /* Manual Sourcing Toolkit (Non-IT Exporters) */
         <div className="space-y-6">
           <div className="p-4 rounded-xl bg-card border border-border flex items-center justify-between">
             <div className="space-y-1">
@@ -748,14 +581,14 @@ export function DiscoverySection({
                 Non-IT Exporter Sourcing Playbook
               </h3>
               <p className="text-xs text-muted-foreground">
-                Pre-built deep search queries and direct trade directory links for manual prospecting
+                Deep search queries and direct trade directory links for manual prospecting
               </p>
             </div>
             <Button
               variant="accent"
               size="sm"
               onClick={() => setManualDialogOpen(true)}
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs font-semibold"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Add Lead Manually</span>
@@ -763,16 +596,16 @@ export function DiscoverySection({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* LinkedIn Boolean Query Builder */}
+            {/* LinkedIn Search String */}
             <Card className="space-y-3">
               <CardHeader className="p-0">
-                <CardTitle className="text-sm">LinkedIn Recruiter & Sales Search</CardTitle>
+                <CardTitle className="text-sm">LinkedIn Recruiter &amp; Sales Search</CardTitle>
                 <CardDescription>
-                  Copy & paste into LinkedIn Search bar to uncover decision makers
+                  Copy &amp; paste into LinkedIn search bar to find buyers
                 </CardDescription>
               </CardHeader>
               <div className="p-3 rounded-lg bg-secondary font-mono text-xs text-accent break-all select-all">
-                (&quot;Buyer&quot; OR &quot;Purchaser&quot; OR &quot;Merchandiser&quot; OR &quot;CEO&quot;) AND (&quot;Home Decor&quot; OR &quot;Singing Bowls&quot; OR &quot;Sound Therapy&quot;) AND &quot;United States&quot;
+                (&quot;Buyer&quot; OR &quot;Purchaser&quot; OR &quot;Procurement Manager&quot;) AND (&quot;Home Decor&quot; OR &quot;Singing Bowls&quot;) AND &quot;United States&quot;
               </div>
               <Button
                 variant="outline"
@@ -780,7 +613,7 @@ export function DiscoverySection({
                 className="w-full text-xs gap-1.5"
                 onClick={() => {
                   navigator.clipboard.writeText(
-                    '("Buyer" OR "Purchaser" OR "Merchandiser" OR "CEO") AND ("Home Decor" OR "Singing Bowls" OR "Sound Therapy") AND "United States"'
+                    '("Buyer" OR "Purchaser" OR "Procurement Manager") AND ("Home Decor" OR "Singing Bowls") AND "United States"'
                   );
                   toast.success("Query copied to clipboard!");
                 }}
@@ -790,16 +623,16 @@ export function DiscoverySection({
               </Button>
             </Card>
 
-            {/* Google / Maps Query Builder */}
+            {/* Google Dork Search */}
             <Card className="space-y-3">
               <CardHeader className="p-0">
                 <CardTitle className="text-sm">Google Maps High-Intent Dork</CardTitle>
                 <CardDescription>
-                  Extract local wholesale showrooms with published phone numbers
+                  Extract local wholesale showrooms with direct phone numbers
                 </CardDescription>
               </CardHeader>
               <div className="p-3 rounded-lg bg-secondary font-mono text-xs text-accent break-all select-all">
-                &quot;singing bowls&quot; OR &quot;tingsha bells&quot; wholesale OR showroom intext:&quot;Texas&quot; OR &quot;California&quot; -amazon -walmart
+                &quot;singing bowls&quot; OR &quot;meditation bells&quot; wholesale OR showroom intext:&quot;Texas&quot; OR &quot;California&quot; -amazon -walmart
               </div>
               <Button
                 variant="outline"
@@ -807,7 +640,7 @@ export function DiscoverySection({
                 className="w-full text-xs gap-1.5"
                 onClick={() => {
                   navigator.clipboard.writeText(
-                    '"singing bowls" OR "tingsha bells" wholesale OR showroom intext:"Texas" OR "California" -amazon -walmart'
+                    '"singing bowls" OR "meditation bells" wholesale OR showroom intext:"Texas" OR "California" -amazon -walmart'
                   );
                   toast.success("Query copied to clipboard!");
                 }}
@@ -820,9 +653,9 @@ export function DiscoverySection({
             {/* Trade Intelligence Links */}
             <Card className="space-y-3">
               <CardHeader className="p-0">
-                <CardTitle className="text-sm">US Customs & Trade Intel</CardTitle>
+                <CardTitle className="text-sm">US Customs &amp; Trade Intel</CardTitle>
                 <CardDescription>
-                  Find real US companies currently importing from India via bills of lading
+                  Find real US companies importing Indian handicrafts via bills of lading
                 </CardDescription>
               </CardHeader>
               <div className="space-y-2">
@@ -841,7 +674,7 @@ export function DiscoverySection({
                   rel="noreferrer"
                   className="flex items-center justify-between p-2 rounded-lg bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors"
                 >
-                  <span className="font-medium">ThomasNet Industrial Directory</span>
+                  <span className="font-medium">ThomasNet Wholesale Directory</span>
                   <ExternalLink className="w-3.5 h-3.5 text-accent" />
                 </a>
                 <a
@@ -865,107 +698,80 @@ export function DiscoverySection({
           <DialogHeader>
             <DialogTitle>Add Buyer Lead Manually</DialogTitle>
             <DialogDescription>
-              Insert a single B2B prospect discovered through phone calls or trade shows
+              Insert a single B2B prospect discovered through trade fairs or phone calls
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Company Name *
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground">Company Name *</label>
               <Input
                 value={manualForm.company}
-                onChange={(e) =>
-                  setManualForm({ ...manualForm, company: e.target.value })
-                }
-                placeholder="e.g. Dallas Mystic Mart"
+                onChange={(e) => setManualForm({ ...manualForm, company: e.target.value })}
+                placeholder="e.g. Austin Mystic Showroom"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Contact Person Name
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground">Contact Person</label>
               <Input
                 value={manualForm.contactName}
-                onChange={(e) =>
-                  setManualForm({ ...manualForm, contactName: e.target.value })
-                }
-                placeholder="e.g. Amanda Cole"
+                onChange={(e) => setManualForm({ ...manualForm, contactName: e.target.value })}
+                placeholder="e.g. Marcus Vance"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Business Email *
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground">Business Email *</label>
               <Input
                 type="email"
                 value={manualForm.email}
-                onChange={(e) =>
-                  setManualForm({ ...manualForm, email: e.target.value })
-                }
+                onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })}
                 placeholder="buyer@company.com"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Telephone (for Call List)
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground">Telephone (Call List)</label>
               <Input
                 value={manualForm.phone}
-                onChange={(e) =>
-                  setManualForm({ ...manualForm, phone: e.target.value })
-                }
-                placeholder="+1 (555) 019-2831"
+                onChange={(e) => setManualForm({ ...manualForm, phone: e.target.value })}
+                placeholder="+1 (512) 555-0192"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Website
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground">Website</label>
               <Input
                 value={manualForm.website}
-                onChange={(e) =>
-                  setManualForm({ ...manualForm, website: e.target.value })
-                }
+                onChange={(e) => setManualForm({ ...manualForm, website: e.target.value })}
                 placeholder="https://company.com"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Buyer Classification
-              </label>
+              <label className="text-xs font-semibold text-muted-foreground">Buyer Type</label>
               <Select
                 value={manualForm.buyerType}
-                onValueChange={(val: any) =>
-                  setManualForm({ ...manualForm, buyerType: val })
-                }
+                onValueChange={(val: any) => setManualForm({ ...manualForm, buyerType: val })}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Wholesaler">Wholesaler</SelectItem>
-                  <SelectItem value="Importer">Importer</SelectItem>
-                  <SelectItem value="Showroom">Showroom</SelectItem>
-                  <SelectItem value="Retailer">Retailer</SelectItem>
-                  <SelectItem value="Distributor">Distributor</SelectItem>
-                  <SelectItem value="Wellness Store">Wellness Store</SelectItem>
+                  <SelectItem value="WHOLESALER">Wholesaler</SelectItem>
+                  <SelectItem value="IMPORTER">Importer</SelectItem>
+                  <SelectItem value="SHOWROOM">Showroom</SelectItem>
+                  <SelectItem value="DISTRIBUTOR">Distributor</SelectItem>
+                  <SelectItem value="RETAILER">Retailer</SelectItem>
+                  <SelectItem value="WELLNESS_STORE">Wellness Store</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setManualDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setManualDialogOpen(false)}>
               Cancel
             </Button>
             <Button variant="accent" onClick={handleManualAddLead}>

@@ -1,0 +1,110 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Lead {
+  id                    String    @id @default(cuid())
+  company               String
+  domain                String?
+  website               String?
+  contactName           String?
+  contactTitle          String?
+  email                 String?
+  emailLower            String?   @unique
+  phone                 String?
+  address               String?
+  city                  String?
+  state                 String?
+  country               String    @default("United States")
+  source                String    @default("MANUAL")
+  sourceRef             String?
+  buyerType             String    @default("Wholesaler")
+  emailStatus           String    @default("not_sent")
+  emailStatusReason     String?
+  emailValid            Boolean?
+  emailValidationReason String?
+  aiClass               String?
+  aiConfidence          Float     @default(0.0)
+  aiReasoning           String?
+  pipelineStage         String    @default("lead")
+  optedOut              Boolean   @default(false)
+  notes                 String?
+  called                Boolean   @default(false)
+  callNotes             String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([domain])
+  @@index([buyerType])
+  @@index([state])
+  @@index([emailStatus])
+}
+
+model DiscoveryRun {
+  id              String    @id @default(cuid())
+  params          String?   // JSON string of query parameters
+  status          String    @default("COMPLETED") // PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+  foundCount      Int       @default(0)
+  duplicatesCount Int       @default(0)
+  error           String?
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  logs            RunLog[]
+
+  createdAt       DateTime  @default(now())
+}
+
+model RunLog {
+  id        String       @id @default(cuid())
+  runId     String
+  run       DiscoveryRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  level     String       @default("INFO") // INFO, WARN, ERROR, SUCCESS
+  message   String
+  ts        DateTime     @default(now())
+
+  @@index([runId])
+}
+
+model ApiUsage {
+  id           String   @id @default(cuid())
+  provider     String   // "google_places", "gemini"
+  month        String   // "YYYY-MM"
+  requestCount Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([provider, month])
+}
+
+model Suppression {
+  id            String   @id @default(cuid())
+  emailOrDomain String   @unique
+  reason        String   @default("UNSUBSCRIBED")
+  createdAt     DateTime @default(now())
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String?
+  metadata   String?  // JSON string
+  createdAt  DateTime @default(now())
+}
+
+model Setting {
+  id                 String   @id @default("default")
+  companyName        String   @default("Aura Crafts Exports")
+  exporterName       String   @default("Avinash Singh")
+  exporterEmail      String   @default("avinash@auracraftsexports.com")
+  exporterPhone      String   @default("+91 98110 23456")
+  exporterAddress    String   @default("Moradabad, Uttar Pradesh, India")
+  monthlyPlacesLimit Int      @default(100)
+  googlePlacesApiKey String?
+  geminiApiKey       String?
+  updatedAt          DateTime @updatedAt
+}
