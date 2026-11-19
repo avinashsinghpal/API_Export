@@ -3,6 +3,7 @@ import { RawLead, DiscoverySearchInput } from "../validations";
 import { logger } from "../logger";
 import { getCachedQuery, setCachedQuery } from "../query-cache";
 import { checkQuotaSafety, incrementQuotaUsage } from "../quota-manager";
+import { prisma } from "../db";
 
 export function buildTargetedQueries(input: DiscoverySearchInput): string[] {
   const product = input.product.trim();
@@ -18,7 +19,6 @@ export function buildTargetedQueries(input: DiscoverySearchInput): string[] {
     queries.push(`${typeLabel} ${product} ${location}`.trim());
   }
 
-  // Add category or general decor showroom query if category is provided
   if (input.category && !queries.some((q) => q.includes(input.category!.toLowerCase()))) {
     queries.push(`${input.category} showroom ${location}`.trim());
   }
@@ -31,13 +31,28 @@ export class GooglePlacesProvider implements DiscoveryProvider {
   public name = "Google Places API (New)";
 
   public async *search(input: DiscoverySearchInput): AsyncIterable<RawLead> {
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    // 1. Get real API key from environment or database setting
+    let apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey || apiKey.length < 10 || apiKey.includes("your-google")) {
+      try {
+        const setting = await prisma.setting.findUnique({ where: { id: "default" } });
+        if (setting?.googlePlacesApiKey) {
+          apiKey = setting.googlePlacesApiKey;
+        }
+      } catch {}
+    }
+
+    if (!apiKey || apiKey.length < 10 || apiKey.includes("your-google")) {
+      throw new Error(
+        "Google Places API Key is missing. To fetch real buyers, please add your GOOGLE_PLACES_API_KEY in .env.local or enter it in the Settings section."
+      );
+    }
+
     const queries = buildTargetedQueries(input);
-    const hasLiveKey = Boolean(apiKey && apiKey.length > 10 && !apiKey.includes("your-google"));
 
     logger.info(
-      { queriesCount: queries.length, hasLiveKey, provider: this.id },
-      "Initiating Google Places Discovery Search"
+      { queriesCount: queries.length, provider: this.id },
+      "Executing real Google Places API search for buyers"
     );
 
     let totalYielded = 0;
@@ -46,10 +61,10 @@ export class GooglePlacesProvider implements DiscoveryProvider {
     for (const query of queries) {
       if (totalYielded >= maxLeads) break;
 
-      // 1. Check 7-day Query Cache
+      // 2. Check 7-day Query Cache (avoids wasting Google API quota on duplicate searches)
       const cached = await getCachedQuery(query);
       if (cached && Array.isArray(cached) && cached.length > 0) {
-        logger.info({ query, count: cached.length }, "Found cached Google Places query results (7-day TTL)");
+        logger.info({ query, count: cached.length }, "Serving cached real Google Places query results (7-day TTL)");
         for (const lead of cached) {
           if (totalYielded >= maxLeads) break;
           yield lead;
@@ -58,120 +73,76 @@ export class GooglePlacesProvider implements DiscoveryProvider {
         continue;
       }
 
-      // 2. Live API Request (if key configured)
-      if (hasLiveKey) {
-        // Quota check
-        const quotaCheck = await checkQuotaSafety("google_places", 1);
-        if (!quotaCheck.allowed) {
-          logger.warn({ message: quotaCheck.message }, "Halting search due to quota safety limit");
-          throw new Error(quotaCheck.message);
-        }
-
-        try {
-          const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Goog-Api-Key": apiKey!,
-              "X-Goog-FieldMask":
-                "places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber,places.formattedAddress,places.location,places.types,places.businessStatus",
-            },
-            body: JSON.stringify({
-              textQuery: query,
-              maxResultCount: Math.min(maxLeads - totalYielded, 20),
-            }),
-          });
-
-          await incrementQuotaUsage("google_places", 1);
-
-          if (response.ok) {
-            const data = await response.json();
-            const rawPlaces = data.places || [];
-            const queryLeads: RawLead[] = [];
-
-            for (const place of rawPlaces) {
-              // Skip permanently closed businesses
-              if (place.businessStatus === "CLOSED_PERMANENTLY") {
-                continue;
-              }
-
-              // Extract buyer type guess from place types
-              let inferredBuyerType: any = "WHOLESALER";
-              const types = place.types || [];
-              if (types.includes("wholesaler")) inferredBuyerType = "WHOLESALER";
-              else if (types.includes("furniture_store") || types.includes("home_goods_store")) inferredBuyerType = "SHOWROOM";
-              else if (types.includes("store")) inferredBuyerType = "RETAILER";
-
-              const lead: RawLead = {
-                company: place.displayName?.text || "Showroom Business",
-                website: place.websiteUri || "",
-                phone: place.nationalPhoneNumber || "",
-                address: place.formattedAddress || "",
-                city: input.city || "Austin",
-                state: input.state || "Texas",
-                country: input.country || "United States",
-                source: "GOOGLE_PLACES",
-                sourceRef: place.id ? `places:${place.id}` : `query:${query}`,
-                buyerType: inferredBuyerType,
-              };
-
-              queryLeads.push(lead);
-              yield lead;
-              totalYielded++;
-              if (totalYielded >= maxLeads) break;
-            }
-
-            // Save to 7-day query cache
-            if (queryLeads.length > 0) {
-              await setCachedQuery(query, queryLeads);
-            }
-            continue;
-          } else {
-            const errBody = await response.text();
-            logger.warn({ status: response.status, body: errBody }, "Google Places API error, using simulation");
-          }
-        } catch (err: any) {
-          logger.error({ error: err.message }, "Error during Google Places API execution");
-        }
+      // 3. Quota Safety Check
+      const quotaCheck = await checkQuotaSafety("google_places", 1);
+      if (!quotaCheck.allowed) {
+        logger.warn({ message: quotaCheck.message }, "Halting search due to quota safety limit");
+        throw new Error(quotaCheck.message);
       }
 
-      // 3. Realistic fallback generator matching the user's specific query & location
-      const fallbackTemplates = [
-        { suffix: "Acoustic & Sound Wholesale", type: "WHOLESALER" as const, domainSuffix: "soundwholesale.com" },
-        { suffix: "Tibetan Crafts & Sacred Showroom", type: "SHOWROOM" as const, domainSuffix: "sacredshowroom.com" },
-        { suffix: "Holistic Decor & Wellness Supply", type: "DISTRIBUTOR" as const, domainSuffix: "wellnesssupply.com" },
-        { suffix: "Direct Himalayan Imports Co.", type: "IMPORTER" as const, domainSuffix: "himalayanimports.com" },
-        { suffix: "Mindful Living Studio & Shop", type: "RETAILER" as const, domainSuffix: "mindfulliving.com" },
-      ];
+      // 4. Live Google Places (New) Text Search HTTP Request
+      const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask":
+            "places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber,places.formattedAddress,places.location,places.types,places.businessStatus",
+        },
+        body: JSON.stringify({
+          textQuery: query,
+          maxResultCount: Math.min(maxLeads - totalYielded, 20),
+        }),
+      });
 
-      const locPrefix = input.city || input.state || "US";
+      await incrementQuotaUsage("google_places", 1);
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        logger.error({ status: response.status, body: errBody }, "Google Places API returned error");
+        throw new Error(`Google Places API error (${response.status}): ${errBody.slice(0, 200)}`);
+      }
+
+      const data = await response.json();
+      const rawPlaces = data.places || [];
       const queryLeads: RawLead[] = [];
 
-      for (let i = 0; i < fallbackTemplates.length; i++) {
-        if (totalYielded >= maxLeads) break;
-        const tmpl = fallbackTemplates[i];
-        const company = `${locPrefix} ${tmpl.suffix}`;
-        const domain = `${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.${tmpl.domainSuffix}`;
+      for (const place of rawPlaces) {
+        // Skip permanently closed businesses
+        if (place.businessStatus === "CLOSED_PERMANENTLY") {
+          continue;
+        }
+
+        // Infer buyer type based on place categories
+        let inferredBuyerType: any = "WHOLESALER";
+        const types = place.types || [];
+        if (types.includes("wholesaler")) inferredBuyerType = "WHOLESALER";
+        else if (types.includes("furniture_store") || types.includes("home_goods_store")) inferredBuyerType = "SHOWROOM";
+        else if (types.includes("store")) inferredBuyerType = "RETAILER";
 
         const lead: RawLead = {
-          company,
-          website: `https://${domain}`,
-          phone: `+1 (512) 555-0${Math.floor(100 + Math.random() * 899)}`,
-          address: `${Math.floor(100 + i * 50)} Commerce Center Dr, ${input.city || "Austin"}, ${input.state || "TX"}`,
+          company: place.displayName?.text || "Showroom Business",
+          website: place.websiteUri || "",
+          phone: place.nationalPhoneNumber || "",
+          address: place.formattedAddress || "",
           city: input.city || "Austin",
           state: input.state || "Texas",
           country: input.country || "United States",
           source: "GOOGLE_PLACES",
-          sourceRef: `places:sim_${domain}`,
-          buyerType: tmpl.type,
+          sourceRef: place.id ? `places:${place.id}` : `query:${query}`,
+          buyerType: inferredBuyerType,
         };
 
         queryLeads.push(lead);
         yield lead;
         totalYielded++;
+        if (totalYielded >= maxLeads) break;
       }
 
-      await setCachedQuery(query, queryLeads);
+      // Store real results into 7-day cache
+      if (queryLeads.length > 0) {
+        await setCachedQuery(query, queryLeads);
+      }
     }
   }
 }

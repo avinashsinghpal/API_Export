@@ -20,7 +20,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorAlert } from "@/components/ui/error-alert";
 import { SectionId } from "../sidebar";
 import { useReportsSummaryQuery, useLeadsQuery } from "@/lib/hooks/use-export-leads";
-import { TOP_SOURCES_DATA } from "@/lib/mock-data";
 
 interface OverviewSectionProps {
   onSelectSection: (section: SectionId) => void;
@@ -42,12 +41,12 @@ export function OverviewSection({ onSelectSection }: OverviewSectionProps) {
     );
   }
 
-  const totalLeads = summary?.totalLeads ?? 36;
-  const validB2B = summary?.validB2B ?? 28;
-  const emailsSent = summary?.sent ?? 18;
-  const replyRate = `${summary?.replyRate ?? 44.4}%`;
-  const replied = summary?.replied ?? 8;
-  const duplicatesBlocked = summary?.duplicatesBlocked ?? 14;
+  const totalLeads = summary?.totalLeads ?? 0;
+  const validB2B = summary?.validB2B ?? 0;
+  const emailsSent = summary?.sent ?? 0;
+  const replyRate = `${summary?.replyRate ?? 0}%`;
+  const replied = summary?.replied ?? 0;
+  const duplicatesBlocked = summary?.duplicatesBlocked ?? 0;
 
   const recentLeads = leadsData?.leads || [];
 
@@ -58,7 +57,7 @@ export function OverviewSection({ onSelectSection }: OverviewSectionProps) {
         onSelectSection={onSelectSection}
         stats={{
           totalLeads,
-          validEmails: summary?.validEmails ?? 32,
+          validEmails: summary?.validEmails ?? 0,
           b2bCount: validB2B,
           contactedCount: emailsSent,
         }}
@@ -172,50 +171,56 @@ export function OverviewSection({ onSelectSection }: OverviewSectionProps) {
             </button>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y divide-border">
-              {recentLeads.slice(0, 5).map((lead, idx) => (
-                <div
-                  key={lead.id}
-                  className="flex items-center justify-between p-4 hover:bg-secondary/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center font-semibold text-xs shrink-0 group-hover:text-accent transition-colors">
-                      {lead.company.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {lead.company}
-                        </p>
-                        <span className="text-xs text-muted-foreground hidden sm:inline">
-                          • {lead.contactName}
-                        </span>
+            {recentLeads.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No buyer leads recorded yet. Go to <span className="text-accent font-medium cursor-pointer" onClick={() => onSelectSection("discovery")}>Buyer Discovery</span> to search real importers, wholesalers, and showrooms.
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {recentLeads.slice(0, 5).map((lead, idx) => (
+                  <div
+                    key={lead.id}
+                    className="flex items-center justify-between p-4 hover:bg-secondary/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center font-semibold text-xs shrink-0 group-hover:text-accent transition-colors">
+                        {lead.company.charAt(0)}
                       </div>
-                      <p className="text-xs font-mono text-muted-foreground truncate">
-                        {lead.email}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {lead.company}
+                          </p>
+                          <span className="text-xs text-muted-foreground hidden sm:inline">
+                            • {lead.contactName}
+                          </span>
+                        </div>
+                        <p className="text-xs font-mono text-muted-foreground truncate">
+                          {lead.email}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0 ml-4">
+                      <div className="hidden sm:flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Clock className="w-3 h-3" />
+                        <span>{lead.city}, {lead.state}</span>
+                      </div>
+
+                      {lead.emailStatus === "replied" && (
+                        <Badge variant="success">Replied (High Intent)</Badge>
+                      )}
+                      {lead.emailStatus === "opened" && <Badge variant="accent">Opened</Badge>}
+                      {lead.emailStatus === "sent" && <Badge variant="secondary">Delivered</Badge>}
+                      {lead.emailStatus === "bounced" && <Badge variant="destructive">Bounced</Badge>}
+                      {lead.emailStatus === "not_sent" && (
+                        <Badge variant="outline">Discovered</Badge>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3 shrink-0 ml-4">
-                    <div className="hidden sm:flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <Clock className="w-3 h-3" />
-                      <span>{lead.city}, {lead.state}</span>
-                    </div>
-
-                    {lead.emailStatus === "replied" && (
-                      <Badge variant="success">Replied (High Intent)</Badge>
-                    )}
-                    {lead.emailStatus === "opened" && <Badge variant="accent">Opened</Badge>}
-                    {lead.emailStatus === "sent" && <Badge variant="secondary">Delivered</Badge>}
-                    {lead.emailStatus === "bounced" && <Badge variant="destructive">Bounced</Badge>}
-                    {lead.emailStatus === "not_sent" && (
-                      <Badge variant="outline">Discovered</Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -226,22 +231,57 @@ export function OverviewSection({ onSelectSection }: OverviewSectionProps) {
             <CardDescription>Highest converting directories and networks</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-2">
-            {TOP_SOURCES_DATA.map((source) => (
-              <div key={source.name} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-foreground truncate">{source.name}</span>
-                  <span className="font-mono text-muted-foreground">
-                    {source.count} leads ({source.percentage}%)
-                  </span>
+            {(() => {
+              const sourceMap: Record<string, number> = {};
+              recentLeads.forEach((l) => {
+                const s =
+                  l.source === "GOOGLE_PLACES"
+                    ? "Google Places (New)"
+                    : l.source === "GOOGLE"
+                    ? "Google Programmable Search"
+                    : l.source === "APOLLO"
+                    ? "Apollo.io B2B"
+                    : l.source === "WEBSITE"
+                    ? "Company Websites"
+                    : l.source === "CSV"
+                    ? "CSV / XLSX Import"
+                    : l.source || "Direct Discovery";
+                sourceMap[s] = (sourceMap[s] || 0) + 1;
+              });
+              const totalSources = recentLeads.length;
+              const realSources = Object.entries(sourceMap)
+                .map(([name, count]) => ({
+                  name,
+                  count,
+                  percentage: totalSources > 0 ? Math.round((count / totalSources) * 100) : 0,
+                }))
+                .sort((a, b) => b.count - a.count);
+
+              if (realSources.length === 0) {
+                return (
+                  <div className="py-6 text-center text-xs text-muted-foreground">
+                    No acquisition sources yet. Run Buyer Discovery to acquire leads from Google Places, Web Crawler, or CSV Import.
+                  </div>
+                );
+              }
+
+              return realSources.map((source) => (
+                <div key={source.name} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground truncate">{source.name}</span>
+                    <span className="font-mono text-muted-foreground">
+                      {source.count} leads ({source.percentage}%)
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-accent transition-all duration-500"
+                      style={{ width: `${source.percentage}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-accent transition-all duration-500"
-                    style={{ width: `${source.percentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              ));
+            })()}
 
             <div className="pt-3 border-t border-border">
               <button

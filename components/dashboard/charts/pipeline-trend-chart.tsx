@@ -10,7 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { PIPELINE_WEEKLY_TREND } from "@/lib/mock-data";
+import { usePipelineTimeseriesQuery } from "@/lib/hooks/use-export-leads";
 
 interface CustomTooltipProps {
   active?: boolean;
@@ -45,6 +45,7 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
 
 export function PipelineTrendChart() {
   const [mounted, setMounted] = React.useState(false);
+  const { data: timeseriesData } = usePipelineTimeseriesQuery();
 
   React.useEffect(() => {
     const timer = setTimeout(() => setMounted(true), 250);
@@ -55,11 +56,20 @@ export function PipelineTrendChart() {
     return <div className="h-[280px] w-full animate-pulse rounded-lg bg-secondary/30" />;
   }
 
+  const chartData = timeseriesData && timeseriesData.length > 0
+    ? timeseriesData
+    : [
+        { week: "W-3", discovered: 0, emailsSent: 0, replies: 0 },
+        { week: "W-2", discovered: 0, emailsSent: 0, replies: 0 },
+        { week: "W-1", discovered: 0, emailsSent: 0, replies: 0 },
+        { week: "Current", discovered: 0, emailsSent: 0, replies: 0 },
+      ];
+
   return (
     <div className="h-[280px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart
-          data={PIPELINE_WEEKLY_TREND}
+          data={chartData}
           margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
         >
           <defs>

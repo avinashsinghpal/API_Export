@@ -1,4 +1,3 @@
-import { INITIAL_LEADS, INITIAL_DISCOVERY_RUNS, INITIAL_CAMPAIGNS, INITIAL_EMAIL_LOGS } from "./mock-data";
 import { normalizeDomain, normalizeEmail, normalizePhone, normalizeCompanyName } from "./normalizer";
 import { isFuzzyDuplicate } from "./dedupe";
 import { prisma } from "./db";
@@ -128,10 +127,9 @@ class LeadsDataStore {
     emailSignature: `Avinash Singh\nHead of Global Trade | Aura Crafts Exports, India\nDirect / WhatsApp: +91 98110 23456\nWeb: https://auracraftsexports.com\nSpecialized in Handcrafted 7-Chakra Singing Bowls & Artisan Metal Decor`,
   };
 
-  private duplicatesBlockedCounter = 14;
+  private duplicatesBlockedCounter = 0;
 
   constructor() {
-    this.seedDefaults();
     this.syncFromPrisma();
   }
 
@@ -175,104 +173,40 @@ class LeadsDataStore {
           });
         });
       }
+
+      const dbRuns = await prisma.discoveryRun.findMany({
+        orderBy: { createdAt: "desc" },
+      });
+      if (dbRuns && dbRuns.length > 0) {
+        dbRuns.forEach((r) => {
+          let parsed: any = {};
+          try {
+            parsed = JSON.parse(r.params || "{}");
+          } catch {}
+          this.runs.set(r.id, {
+            id: r.id,
+            workspaceId: "ws_demo_auracrafts",
+            product: parsed.product || "Singing Bowls",
+            category: parsed.category || "Home Decor",
+            country: parsed.country || "United States",
+            state: parsed.state,
+            city: parsed.city,
+            sources: parsed.sources || ["Google Places (New)"],
+            leadsFound: r.foundCount,
+            duplicatesBlocked: r.duplicatesCount,
+            invalidCount: 0,
+            b2bCount: r.foundCount,
+            costCredits: 0,
+            status: (r.status.toLowerCase() as any) || "completed",
+            startedAt: r.startedAt.toISOString(),
+            finishedAt: r.finishedAt?.toISOString(),
+            date: r.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          });
+        });
+      }
     } catch (err) {
       // Prisma syncing handled gracefully in case DB is being migrated
     }
-  }
-
-  private seedDefaults() {
-    const wsId = "ws_demo_auracrafts";
-
-    // Seed initial leads
-    INITIAL_LEADS.forEach((l) => {
-      const emailLower = normalizeEmail(l.email);
-      const domain = normalizeDomain(l.website);
-      this.leads.set(l.id, {
-        id: l.id,
-        workspaceId: wsId,
-        company: l.company,
-        domain,
-        website: l.website,
-        contactName: l.contactName,
-        email: l.email,
-        emailLower,
-        phone: l.phone,
-        country: l.country,
-        state: l.state,
-        city: l.city,
-        source: l.source,
-        buyerType: l.buyerType,
-        emailValid: l.emailValid,
-        emailValidationReason: l.emailValidationReason,
-        aiClass: l.aiClass,
-        aiConfidence: l.aiConfidence,
-        aiReasoning: l.aiReasoning,
-        emailStatus: l.emailStatus,
-        pipelineStage: l.emailStatus === "replied" ? "negotiation" : l.emailStatus !== "not_sent" ? "contacted" : "qualified",
-        optedOut: false,
-        called: l.called || false,
-        callNotes: l.callNotes || "",
-        createdAt: l.createdAt,
-        updatedAt: l.createdAt,
-        isDeleted: false,
-      });
-    });
-
-    // Seed runs
-    INITIAL_DISCOVERY_RUNS.forEach((r) => {
-      this.runs.set(r.id, {
-        id: r.id,
-        workspaceId: wsId,
-        product: r.product,
-        category: r.category,
-        country: r.country,
-        state: r.state,
-        city: r.city,
-        sources: r.sources,
-        leadsFound: r.leadsFound,
-        duplicatesBlocked: r.duplicatesBlocked,
-        invalidCount: 1,
-        b2bCount: r.leadsFound - 1,
-        costCredits: 2.5,
-        status: "completed",
-        date: r.date,
-      });
-    });
-
-    // Seed campaigns
-    INITIAL_CAMPAIGNS.forEach((c) => {
-      this.campaigns.set(c.id, {
-        id: c.id,
-        workspaceId: wsId,
-        name: c.name,
-        product: c.product,
-        country: c.country,
-        subject: "Artisanal Singing Bowls Collection - Direct Export from India",
-        bodyTemplate: "Dear {{contact_name}}, ...",
-        sent: c.sent,
-        delivered: c.delivered,
-        opened: c.opened,
-        replied: c.replied,
-        bounced: c.bounced,
-        status: c.status,
-        date: c.date,
-      });
-    });
-
-    // Seed initial suppressions
-    this.suppressions.set("bounce-1", {
-      id: "supp-1",
-      workspaceId: wsId,
-      emailLower: "caleb@texasacousticwellness.com",
-      domain: "texasacousticwellness.com",
-      reason: "bounced",
-      createdAt: "2026-11-14",
-    });
-
-    // Seed default credentials
-    this.credentials.set("google_places", { apiKey: "AIzaSy_demo_places_key_2026", isActive: true, budget: 100 });
-    this.credentials.set("google_search", { apiKey: "AIzaSy_demo_cse_key_2026", isActive: true, budget: 50 });
-    this.credentials.set("gemini", { apiKey: "AIzaSy_demo_gemini_flash_key", isActive: true, budget: 50 });
   }
 
   // Leads queries
@@ -688,14 +622,12 @@ class LeadsDataStore {
     return this.duplicatesBlockedCounter;
   }
 
-  public resetStore(withInitialSeed = true) {
+  public resetStore() {
     this.leads.clear();
     this.runs.clear();
     this.activityLogs = [];
     this.duplicatesBlockedCounter = 0;
-    if (withInitialSeed) {
-      this.seedDefaults();
-    }
+    this.syncFromPrisma();
   }
 }
 

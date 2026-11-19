@@ -290,6 +290,18 @@ export function useReportsSummaryQuery() {
   });
 }
 
+export function usePipelineTimeseriesQuery() {
+  return useQuery({
+    queryKey: ["pipeline-timeseries"],
+    queryFn: async () => {
+      const res = await fetch("/api/reports/timeseries");
+      if (!res.ok) throw new Error("Failed to fetch timeseries");
+      const data = await res.json();
+      return (data.timeseries || []) as { week: string; discovered: number; emailsSent: number; replies: number }[];
+    },
+  });
+}
+
 // ==========================================
 // Settings & Integrations
 // ==========================================

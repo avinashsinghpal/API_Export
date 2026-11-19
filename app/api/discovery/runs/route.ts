@@ -100,18 +100,23 @@ export async function POST(req: NextRequest) {
     try {
       for await (const rawLead of provider.search(input)) {
         const domain = normalizeDomain(rawLead.website || "");
-        const cleanEmail = normalizeEmail(rawLead.email || `purchasing@${domain || "buyercompany.com"}`);
+        const cleanEmail = rawLead.email ? normalizeEmail(rawLead.email) : "";
 
         // 1. Deduplication check
-        const dup = leadsStore.findDuplicate(auth.workspaceId, cleanEmail, domain);
-        if (dup) {
-          duplicatesCount++;
-          await leadsStore.addRunLog(runId, "WARN", `Deduplication shield blocked: '${rawLead.company}' matches existing root domain.`);
-          continue;
+        if (cleanEmail || domain) {
+          const dup = leadsStore.findDuplicate(auth.workspaceId, cleanEmail || `info@${domain}`, domain);
+          if (dup) {
+            duplicatesCount++;
+            await leadsStore.addRunLog(runId, "WARN", `Deduplication shield blocked: '${rawLead.company}' matches existing record (${dup.company}).`);
+            continue;
+          }
         }
 
-        // 2. Email hygiene check
-        const hygiene = await validateEmailHygiene(cleanEmail);
+        // 2. Email hygiene check (if email is present)
+        let hygiene = { isValid: null as boolean | null, reason: "No email provided by Place card; ready for crawler enrichment" };
+        if (cleanEmail) {
+          hygiene = await validateEmailHygiene(cleanEmail);
+        }
 
         // 3. AI classification with Gemini
         const classification = await classifyLeadWithGemini({
@@ -125,17 +130,17 @@ export async function POST(req: NextRequest) {
         // 4. Save to store and SQLite
         const { lead: createdLead } = leadsStore.createLead(auth.workspaceId, {
           company: rawLead.company,
-          website: rawLead.website || `https://${domain}`,
+          website: rawLead.website || (domain ? `https://${domain}` : ""),
           contactName: rawLead.contactName || "Purchasing Team",
           contactTitle: rawLead.contactTitle || "Wholesale Buyer",
           email: cleanEmail,
-          phone: rawLead.phone || "+1 (512) 555-0" + Math.floor(100 + Math.random() * 900),
+          phone: rawLead.phone || "",
           country: rawLead.country,
           state: rawLead.state,
           city: rawLead.city,
-          address: rawLead.address,
+          address: rawLead.address || "",
           source: "GOOGLE_PLACES",
-          sourceRef: rawLead.sourceRef || `places:${domain}`,
+          sourceRef: rawLead.sourceRef || (domain ? `places:${domain}` : `query:${input.product}`),
           buyerType: classification.buyerType.toUpperCase() as any,
           emailValid: hygiene.isValid,
           emailValidationReason: hygiene.reason,
