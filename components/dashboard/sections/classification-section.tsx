@@ -62,11 +62,12 @@ export function ClassificationSection() {
   };
 
   const handleManualClassOverride = (lead: any, newClass: "b2b" | "consumer") => {
+    const timestamp = new Date().toISOString().replace("T", " ").slice(0, 16);
     updateLeadMutation.mutate({
       id: lead.id,
       aiClass: newClass,
       aiConfidence: 1.0,
-      aiReasoning: `Manual override by exporter to ${newClass.toUpperCase()}.`,
+      aiReasoning: `Manual override by Exporter [${timestamp}] to ${newClass.toUpperCase()}.`,
     });
     toast.info(`Updated ${lead.company} classification to ${newClass.toUpperCase()}`);
   };
