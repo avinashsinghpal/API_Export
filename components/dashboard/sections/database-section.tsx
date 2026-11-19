@@ -20,6 +20,7 @@ import {
   ShieldAlert,
   FileSpreadsheet,
   Plus,
+  Globe,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ import {
   useUpdateLeadMutation,
   useBulkLeadActionMutation,
   useCreateLeadMutation,
+  useEnrichLeadsMutation,
 } from "@/lib/hooks/use-export-leads";
 import { useQueryClient } from "@tanstack/react-query";
 import { Lead } from "@/lib/types";
@@ -105,6 +107,8 @@ export function DatabaseSection() {
   const updateLeadMutation = useUpdateLeadMutation();
   const bulkActionMutation = useBulkLeadActionMutation();
   const createLeadMutation = useCreateLeadMutation();
+  const enrichMutation = useEnrichLeadsMutation();
+  const [isEnriching, setIsEnriching] = React.useState(false);
 
   const leads = data?.leads || [];
   const total = data?.total || 0;
@@ -162,6 +166,23 @@ export function DatabaseSection() {
       setSelectedIds([]);
     } catch (err: any) {
       toast.error(err.message || "Bulk action failed");
+    }
+  };
+
+  // Polite Website Crawler Enrichment
+  const handleEnrichSelected = async () => {
+    if (selectedIds.length === 0) return;
+    setIsEnriching(true);
+    try {
+      const res = await enrichMutation.mutateAsync(selectedIds);
+      toast.success("Enrichment Complete!", {
+        description: res.message,
+      });
+      setSelectedIds([]);
+    } catch (err: any) {
+      toast.error(err.message || "Enrichment failed");
+    } finally {
+      setIsEnriching(false);
     }
   };
 
@@ -346,6 +367,16 @@ export function DatabaseSection() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isEnriching}
+              onClick={handleEnrichSelected}
+              className="h-7 text-xs gap-1 font-semibold text-accent border-accent/40 hover:bg-accent/10"
+            >
+              <Globe className="w-3 h-3 text-accent" />
+              <span>{isEnriching ? "Enriching..." : "Enrich Selected"}</span>
+            </Button>
             <Button
               size="sm"
               variant="outline"

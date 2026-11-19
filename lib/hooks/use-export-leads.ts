@@ -107,6 +107,26 @@ export function useBulkLeadActionMutation() {
   });
 }
 
+export function useEnrichLeadsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (leadIds: string[]) => {
+      const res = await fetch("/api/leads/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Enrichment failed");
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["reports-summary"] });
+    },
+  });
+}
+
 // ==========================================
 // Discovery Runs Query & Mutations
 // ==========================================
