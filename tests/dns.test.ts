@@ -34,7 +34,16 @@ describe("Email Hygiene & DNS Validation", () => {
     const res = await validateEmailHygiene("info@google.com");
     expect(res.isValid).toBe(true);
     expect(res.isRole).toBe(true);
-    expect(res.status).toBe("RISKY");
+    expect(res.status).toBe("risky");
     expect(res.hasMxRecord).toBe(true);
+  });
+
+  it("marks domains with no MX records as invalid", async () => {
+    vi.spyOn(dns, "resolveMx").mockRejectedValue(new Error("ENOTFOUND"));
+
+    const res = await validateEmailHygiene("buyer@nonexistentdomain12345.com");
+    expect(res.isValid).toBe(false);
+    expect(res.status).toBe("invalid");
+    expect(res.reason).toBe("no_mx_record");
   });
 });
