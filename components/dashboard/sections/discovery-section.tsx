@@ -405,6 +405,20 @@ export function DiscoverySection() {
                 </div>
               </div>
 
+              {/* Pre-run Estimate Banner */}
+              <div className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-secondary/40 border border-border">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-3.5 h-3.5 text-accent" />
+                  <span className="font-semibold text-foreground">Pre-Run Estimate:</span>
+                  <span className="text-muted-foreground">
+                    ~{buyerTypes.length} targeted queries ({cityFilter || "Austin"}, {stateFilter || "Texas"})
+                  </span>
+                </div>
+                <Badge variant="outline" className="text-[10px] text-accent border-accent/40 font-mono">
+                  {buyerTypes.length} Places API Calls • 7d Cache Active
+                </Badge>
+              </div>
+
               {/* Action Button */}
               <div className="pt-2 flex items-center justify-between gap-4">
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -412,24 +426,39 @@ export function DiscoverySection() {
                   <span>Deduplication &amp; MX validation automatically executed</span>
                 </div>
 
-                <Button
-                  variant="accent"
-                  onClick={handleRunDiscovery}
-                  disabled={isRunning}
-                  className="gap-2 min-w-[160px] font-semibold"
-                >
-                  {isRunning ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
-                      <span>Scanning Providers...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      <span>Run Discovery</span>
-                    </>
+                <div className="flex items-center gap-2">
+                  {isRunning && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsRunning(false);
+                        toast.info("Discovery run cancelled by user.");
+                      }}
+                      className="text-xs text-destructive hover:bg-destructive/10"
+                    >
+                      Cancel Run
+                    </Button>
                   )}
-                </Button>
+                  <Button
+                    variant="accent"
+                    onClick={handleRunDiscovery}
+                    disabled={isRunning}
+                    className="gap-2 min-w-[160px] font-semibold"
+                  >
+                    {isRunning ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
+                        <span>Scanning Providers...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Run Discovery</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </Card>
 

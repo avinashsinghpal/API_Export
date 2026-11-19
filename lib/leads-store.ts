@@ -533,7 +533,51 @@ class LeadsDataStore {
     };
 
     this.runs.set(id, newRun);
+
+    // Save to SQLite
+    prisma.discoveryRun.upsert({
+      where: { id },
+      update: {
+        status: newRun.status.toUpperCase(),
+        foundCount: newRun.leadsFound,
+        duplicatesCount: newRun.duplicatesBlocked,
+      },
+      create: {
+        id,
+        params: JSON.stringify({
+          product: newRun.product,
+          category: newRun.category,
+          country: newRun.country,
+          state: newRun.state,
+          city: newRun.city,
+          sources: newRun.sources,
+        }),
+        status: newRun.status.toUpperCase(),
+        foundCount: newRun.leadsFound,
+        duplicatesCount: newRun.duplicatesBlocked,
+        startedAt: new Date(newRun.startedAt || Date.now()),
+      },
+    }).catch(() => {});
+
     return newRun;
+  }
+
+  public getDiscoveryRun(id: string): StoredDiscoveryRun | undefined {
+    return this.runs.get(id);
+  }
+
+  public async addRunLog(runId: string, level: string, message: string) {
+    try {
+      await prisma.runLog.create({
+        data: {
+          runId,
+          level,
+          message,
+        },
+      });
+    } catch {
+      // Fallback
+    }
   }
 
   // Campaigns

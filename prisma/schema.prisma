@@ -80,6 +80,17 @@ model ApiUsage {
   @@unique([provider, month])
 }
 
+model QueryCache {
+  id        String   @id @default(cuid())
+  queryHash String   @unique
+  queryText String
+  response  String   // JSON string of cached results
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([queryHash])
+}
+
 model Suppression {
   id            String   @id @default(cuid())
   emailOrDomain String   @unique
